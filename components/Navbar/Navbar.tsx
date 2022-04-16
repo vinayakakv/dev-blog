@@ -17,11 +17,13 @@ const menuLinks = [
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuItems = (
-    <ul className="flex flex-col items-center gap-6 sm:flex-row">
+    <menu className="flex flex-col items-center gap-6 sm:flex-row">
       {menuLinks.map(({ name, link }) => (
-        <Link href={link}>{name}</Link>
+        <li key={link}>
+          <Link href={link}>{name}</Link>
+        </li>
       ))}
-    </ul>
+    </menu>
   )
   return (
     <nav className="flex flex-col gap-2 py-2">

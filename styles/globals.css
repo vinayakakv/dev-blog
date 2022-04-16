@@ -8,8 +8,7 @@ body {
 }
 
 body {
-  @apply font-mono text-gray-200;
-  background-image: url('/background.png');
+  @apply bg-gray-900 font-mono text-gray-200;
 }
 
 #__next {

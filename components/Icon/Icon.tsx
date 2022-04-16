@@ -5,8 +5,16 @@ import { Mail } from './Mail'
 import { Menu } from './Menu'
 import { Close } from './Close'
 
+export type IconName =
+  | 'linkedin'
+  | 'mail'
+  | 'download'
+  | 'github'
+  | 'menu'
+  | 'close'
+
 type Props = {
-  name: 'linkedin' | 'mail' | 'download' | 'github' | 'menu' | 'close'
+  name: IconName
 }
 
 export function Icon({ name }: Props) {

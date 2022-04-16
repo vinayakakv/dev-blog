@@ -1,6 +1,40 @@
 import { Button } from '../Button'
-import { Icon } from '../Icon'
+import { Icon, IconName } from '../Icon'
 import { Link } from '../Link'
+
+type HeroLink = {
+  name: string
+  icon: IconName
+  link: string
+  external: boolean
+}
+
+const links: HeroLink[] = [
+  {
+    name: 'LinkedIn',
+    icon: 'linkedin',
+    link: 'https://linkedin.com/in/vinayakakv',
+    external: true,
+  },
+  {
+    name: 'GitHub',
+    icon: 'github',
+    link: 'https://github.com/vinayakakv',
+    external: true,
+  },
+  {
+    name: 'Email',
+    icon: 'mail',
+    link: 'mailto:me.vinayakakv@gmail.com',
+    external: true,
+  },
+  {
+    name: 'Resume',
+    icon: 'download',
+    link: 'public/resume.pdf',
+    external: false,
+  },
+]
 
 export function Hero() {
   return (
@@ -15,18 +49,13 @@ export function Hero() {
         </Link>
       </h2>
       <div className="flex flex-row flex-wrap justify-between gap-4">
-        <Button className="flex-1" icon={<Icon name="linkedin" />}>
-          LinkedIn
-        </Button>
-        <Button className="flex-1" icon={<Icon name="github" />}>
-          GitHub
-        </Button>
-        <Button className="flex-1" icon={<Icon name="mail" />}>
-          Email
-        </Button>
-        <Button className="flex-1" icon={<Icon name="download" />}>
-          Resume
-        </Button>
+        {links.map(({ name, icon, link, external }) => (
+          <Link href={link} key={link} external={external} className="contents">
+            <Button className="flex-1" icon={<Icon name={icon} />}>
+              {name}
+            </Button>
+          </Link>
+        ))}
       </div>
     </section>
   )

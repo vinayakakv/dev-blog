@@ -12,7 +12,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <Navbar />
-      <main className="overflow-y-auto">
+      <main className="flex h-full w-full flex-col gap-8 overflow-y-auto">
         <Component {...pageProps} />
         <Footer />
       </main>

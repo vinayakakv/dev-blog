@@ -39,15 +39,15 @@ const links: HeroLink[] = [
 export function Hero() {
   return (
     <section className="flex flex-col gap-8 py-10">
-      <h2 className="text-xl">Hi, I'm Vinayaka K V</h2>
-      <h1 className="text-4xl">
+      <h2>Hi, I'm Vinayaka K V</h2>
+      <p className="text-4xl">
         I build softwares <b className="text-green-400">that matter.</b>
-      </h1>
-      <h2 className="text-xl">
+      </p>
+      <p className="text-xl">
         <Link href="https://vinayakakv.com" external>
           I also hunt mountains, do photography and write about nature! {'->'}
         </Link>
-      </h2>
+      </p>
       <div className="flex flex-row flex-wrap justify-between gap-4">
         {links.map(({ name, icon, link, external }) => (
           <Link href={link} key={link} external={external} className="contents">

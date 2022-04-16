@@ -1,13 +1,26 @@
 import { useState } from 'react'
 import { Button } from '../Button'
 import { Icon } from '../Icon'
+import { Link } from '../Link'
+
+const menuLinks = [
+  {
+    name: 'Blog',
+    link: '/blog',
+  },
+  {
+    name: 'Collections',
+    link: '/collection',
+  },
+]
 
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuItems = (
     <ul className="flex flex-col items-center gap-6 sm:flex-row">
-      <li>Works</li>
-      <li>Collections</li>
+      {menuLinks.map(({ name, link }) => (
+        <Link href={link}>{name}</Link>
+      ))}
     </ul>
   )
   return (

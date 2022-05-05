@@ -30,7 +30,7 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
                   key={post.slug}
                   tags={post.categories.map((category) => ({
                     name: category.title,
-                    slug: category.slug.toLocaleLowerCase(),
+                    slug: `/category/${category.slug}`,
                   }))}
                 />
               ))}

@@ -18,12 +18,12 @@ export function BlogCard({ title, description, slug, date, tags }: Props) {
       <p>{description}</p>
       <div className="flex flex-row flex-wrap gap-1">
         {tags.map(({ name, slug }) => (
-          <Tag key={slug} name={name} link={`/tags/${slug}`} />
+          <Tag key={slug} name={name} link={slug} />
         ))}
       </div>
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <p>{formatDate(date)}</p>
-        <Link href={`/blog/${slug}`}>
+        <Link href={slug}>
           <Button>{'Read More ->'}</Button>
         </Link>
       </div>

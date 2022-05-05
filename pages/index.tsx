@@ -6,6 +6,7 @@ import { Link } from '@components/Link'
 import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
+import { Placeholder } from '@components/Placeholder'
 
 const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,
@@ -18,21 +19,27 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         description="I write about the projects I've worked on, experience and learnings along the way"
       >
         <div className="grid grid-flow-row grid-cols-1 gap-2 md:grid-cols-2">
-          {posts.map((post) => (
-            <BlogCard
-              title={post.title}
-              description={post.description}
-              date={post.date}
-              slug={post.slug}
-              key={post.slug}
-              tags={post.categories.map((category) => ({
-                name: category.title,
-                slug: category.slug.toLocaleLowerCase(),
-              }))}
-            />
-          ))}
+          {posts.length > 0 ? (
+            <>
+              {posts.map((post) => (
+                <BlogCard
+                  title={post.title}
+                  description={post.description}
+                  date={post.date}
+                  slug={post.slug}
+                  key={post.slug}
+                  tags={post.categories.map((category) => ({
+                    name: category.title,
+                    slug: category.slug.toLocaleLowerCase(),
+                  }))}
+                />
+              ))}
+              <Link href="/blog">See more! {'->'}</Link>
+            </>
+          ) : (
+            <Placeholder>Coming soon!</Placeholder>
+          )}
         </div>
-        <Link href="/blog">See more! {'->'}</Link>
       </Section>
     </>
   )

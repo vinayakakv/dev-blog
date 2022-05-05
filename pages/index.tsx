@@ -1,10 +1,8 @@
-import type { GetStaticProps, InferGetStaticPropsType, NextPage } from 'next'
+import type { InferGetStaticPropsType, NextPage } from 'next'
 import { BlogCard } from '../components/BlogCard'
-import { Button } from '../components/Button'
 import { Hero } from '../components/Hero'
 import { Link } from '../components/Link'
 import { Section } from '../components/Section'
-import { Tag } from '../components/Tag'
 
 const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,

@@ -28,7 +28,9 @@ export function Navbar() {
   return (
     <nav className="flex flex-col gap-2 py-2">
       <section className="flex flex-row items-center justify-between">
-        <span className="text-green-400">dev.vinayakakv</span>
+        <span className="text-green-400">
+          <Link href="/">vinayakakv.com</Link>
+        </span>
         <div className="hidden sm:block">{menuItems}</div>
         <Button
           className="block sm:hidden"

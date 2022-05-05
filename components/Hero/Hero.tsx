@@ -31,8 +31,8 @@ const links: HeroLink[] = [
   {
     name: 'Resume',
     icon: 'download',
-    link: 'public/resume.pdf',
-    external: false,
+    link: 'https://github.com/vinayakakv/vinayakakv/blob/main/Vinayaka%20Resume.pdf',
+    external: true,
   },
 ]
 

@@ -1,3 +1,4 @@
+import { formatDate } from '@utils'
 import { Button } from '../Button'
 import { Link } from '../Link'
 import { Tag } from '../Tag'
@@ -21,7 +22,7 @@ export function BlogCard({ title, description, slug, date, tags }: Props) {
         ))}
       </div>
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <p>{date}</p>
+        <p>{formatDate(date)}</p>
         <Link href={`/blog/${slug}`}>
           <Button>{'Read More ->'}</Button>
         </Link>

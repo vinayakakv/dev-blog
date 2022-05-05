@@ -1,11 +1,11 @@
 import { gql } from '@apollo/client'
 import type { InferGetStaticPropsType, NextPage } from 'next'
-import { BlogCard } from '../components/BlogCard'
-import { Hero } from '../components/Hero'
-import { Link } from '../components/Link'
-import { Section } from '../components/Section'
-import client from '../helpers/graphql'
-import { Post } from '../schema/post'
+import { BlogCard } from '@components/BlogCard'
+import { Hero } from '@components/Hero'
+import { Link } from '@components/Link'
+import { Section } from '@components/Section'
+import client from '@helpers/graphql'
+import { Post } from '@schema/post'
 
 const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,

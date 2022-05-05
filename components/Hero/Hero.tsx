@@ -44,7 +44,7 @@ export function Hero() {
         I build softwares <b className="text-green-400">that matter.</b>
       </p>
       <p className="text-xl">
-        <Link href="https://vinayakakv.com" external>
+        <Link href="https://me.vinayakakv.com" external>
           I also hunt mountains, do photography and write about nature! {'->'}
         </Link>
       </p>

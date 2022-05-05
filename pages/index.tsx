@@ -23,6 +23,7 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
               description={post.description}
               date={post.date}
               slug={post.slug}
+              key={post.slug}
               tags={post.tags.map((tag) => ({
                 name: tag,
                 slug: tag.toLocaleLowerCase(),

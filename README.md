@@ -1,23 +1,24 @@
-# Next.js + Tailwind CSS Example
+# Vinayaka's Dev Blog (WiP)
 
-This example shows how to use [Tailwind CSS](https://tailwindcss.com/) [(v3.0)](https://tailwindcss.com/blog/tailwindcss-v3) with Next.js. It follows the steps outlined in the official [Tailwind docs](https://tailwindcss.com/docs/guides/nextjs).
+This repo hosts the code for my dev blog.
 
-## Deploy your own
+Hosted with Vercel at -- https://dev-blog-five-theta.vercel.app/. (It's $5\theta$!)
 
-Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=next-example) or preview live with [StackBlitz](https://stackblitz.com/github/vercel/next.js/tree/canary/examples/with-tailwindcss)
+Currently, the content there is just a plan for my future articles, they will be replaced when I write some new articles!
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https://github.com/vercel/next.js/tree/canary/examples/with-tailwindcss&project-name=with-tailwindcss&repository-name=with-tailwindcss)
+## Tech Stack
 
-## How to use
+- [GraphCMS](https://graphcms.com/) in the Content Layer
+- [NextJS](https://nextjs.org/) as Static Site Generator
+- [TailwindCSS](https://tailwindcss.com/) for styling
 
-Execute [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app) with [npm](https://docs.npmjs.com/cli/init) or [Yarn](https://yarnpkg.com/lang/en/docs/cli/create/) to bootstrap the example:
+## Running
 
-```bash
-npx create-next-app --example with-tailwindcss with-tailwindcss-app
-# or
-yarn create next-app --example with-tailwindcss with-tailwindcss-app
-# or
-pnpm create next-app -- --example with-tailwindcss with-tailwindcss-app
-```
+- Create a GraphCMS project with schemas matching the ones defined in [`schema/`](/schema/) and add some content
+- Copy `.env.template` to `.env` and add GraphCMS public endpoint in `GRAPHCMS_URL` variable
+- `npm install` to install the dependencies
+- `npm run dev` to run local dev server
 
-Deploy it to the cloud with [Vercel](https://vercel.com/new?utm_source=github&utm_medium=readme&utm_campaign=next-example) ([Documentation](https://nextjs.org/docs/deployment)).
+## Adopting the project to your own needs
+
+You are free to adopt this project according to your own needs. Be sure to replace some hard-coded values! (I will be moving them into seperate `constants.ts` in some time)

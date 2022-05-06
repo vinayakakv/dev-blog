@@ -5,6 +5,8 @@ import type {
   GetStaticPaths,
   NextPage,
 } from 'next'
+import { serialize } from 'next-mdx-remote/serialize'
+import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
@@ -26,7 +28,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
           <strong>Published On:</strong> {date}
         </p>
         <TagList tags={categories} />
-        {content}
+        <MDXRemote {...content} />
       </Section>
     </>
   )
@@ -58,8 +60,9 @@ export const getStaticProps = async ({
       slug,
     },
   })
+  const post = { ...data.post, content: await serialize(data.post.content) }
   return {
-    props: { post: data.post },
+    props: { post },
   }
 }
 

@@ -7,6 +7,7 @@ import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
 import { Placeholder } from '@components/Placeholder'
+import { BlogGrid } from '@components/BlogGrid'
 
 const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,
@@ -21,19 +22,7 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         <div className="grid grid-flow-row grid-cols-1 gap-2 md:grid-cols-2">
           {posts.length > 0 ? (
             <>
-              {posts.map((post) => (
-                <BlogCard
-                  title={post.title}
-                  description={post.description}
-                  date={post.date}
-                  slug={`/blog/${post.slug}`}
-                  key={post.slug}
-                  tags={post.categories.map((category) => ({
-                    name: category.title,
-                    slug: `/category/${category.slug}`,
-                  }))}
-                />
-              ))}
+              <BlogGrid posts={posts} />
               <Link href="/blog">See more! {'->'}</Link>
             </>
           ) : (

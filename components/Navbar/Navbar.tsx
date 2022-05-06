@@ -10,7 +10,7 @@ const menuLinks = [
   },
   {
     name: 'Collections',
-    link: '/collection',
+    link: '/category',
   },
 ]
 

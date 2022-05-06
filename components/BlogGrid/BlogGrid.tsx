@@ -15,10 +15,7 @@ export function BlogGrid({ posts }: Props) {
           date={post.date}
           slug={`/blog/${post.slug}`}
           key={post.slug}
-          tags={post.categories.map((category) => ({
-            name: category.title,
-            slug: `/category/${category.slug}`,
-          }))}
+          categories={post.categories}
         />
       ))}
     </>

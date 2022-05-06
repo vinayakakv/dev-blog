@@ -26,10 +26,7 @@ const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
                 date={post.date}
                 slug={`/blog/${post.slug}`}
                 key={post.slug}
-                tags={post.categories.map((category) => ({
-                  name: category.title,
-                  slug: category.slug.toLocaleLowerCase(),
-                }))}
+                categories={post.categories}
               />
             ))
           ) : (

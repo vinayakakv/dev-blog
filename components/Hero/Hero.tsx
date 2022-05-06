@@ -39,12 +39,12 @@ const links: HeroLink[] = [
 export function Hero() {
   return (
     <section className="flex flex-col gap-8 py-10">
-      <h2>Hi, I'm Vinayaka K V</h2>
+      <h2>Hello World! I'm Vinayaka K V</h2>
       <p className="text-4xl">
-        I build softwares <b className="text-green-400">that matter.</b>
+        I build software <b className="text-green-400">that matters.</b>
       </p>
       <p className="text-xl">
-        <Link href="https://me.vinayakakv.com" external>
+        <Link href="https://vinayakakv.com" external>
           I also hunt mountains, do photography and write about nature! {'->'}
         </Link>
       </p>

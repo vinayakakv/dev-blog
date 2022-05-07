@@ -1,3 +1,4 @@
+import { useRouter } from 'next/router'
 import { useState } from 'react'
 import { Button } from '../Button'
 import { Icon } from '../Icon'
@@ -16,20 +17,22 @@ const menuLinks = [
 
 export function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const { pathname } = useRouter()
+  const activeRoute = pathname.split('/').slice(0, 2).join('/')
   const menuItems = (
     <menu className="flex flex-col items-center gap-6 sm:flex-row">
       {menuLinks.map(({ name, link }) => (
-        <li key={link}>
+        <li key={link} className={link === activeRoute ? 'font-semibold' : ''}>
           <Link href={link}>{name}</Link>
         </li>
       ))}
     </menu>
   )
   return (
-    <nav className="flex flex-col gap-2 py-2">
+    <nav className="sticky top-0 left-0 flex w-full flex-col gap-2 bg-gray-900  py-2">
       <section className="flex flex-row items-center justify-between">
         <span className="text-green-400">
-          <Link href="/">vinayakakv.com</Link>
+          <Link href="/">dev.vinayakakv</Link>
         </span>
         <div className="hidden sm:block">{menuItems}</div>
         <Button

@@ -15,7 +15,9 @@ export function BlogCard({
 }: Props) {
   return (
     <div className="flex max-w-md flex-col items-stretch justify-between gap-2 bg-gray-800 px-4 py-2 hover:bg-gray-700">
-      <h3>{title}</h3>
+      <Link href={slug}>
+        <h3>{title}</h3>
+      </Link>
       <p>{description}</p>
       <TagList tags={categories} />
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">

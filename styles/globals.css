@@ -12,7 +12,11 @@ body {
 }
 
 #__next {
-  @apply mx-auto flex h-full w-full max-w-4xl flex-col px-5;
+  @apply flex h-full w-full flex-col items-center px-5;
+}
+
+#__next > * {
+  @apply w-full max-w-4xl;
 }
 
 @layer base {
@@ -34,9 +38,5 @@ body {
 
   h3 {
     @apply text-xl;
-  }
-
-  ::-webkit-scrollbar {
-    display: none;
   }
 }

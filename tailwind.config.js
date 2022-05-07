@@ -9,5 +9,5 @@ module.exports = {
       mono: ['ui-monospace', 'Fira Code'],
     },
   },
-  plugins: [],
+  plugins: [require('@tailwindcss/typography')],
 }

@@ -18,6 +18,7 @@ const CategoryPage: NextPage<
               <Tag
                 name={`${category.title} (${category.posts.length})`}
                 link={`/category/${category.slug}`}
+                key={category.slug}
               />
             ))
           ) : (

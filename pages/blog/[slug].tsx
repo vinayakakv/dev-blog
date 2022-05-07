@@ -28,7 +28,9 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
           <strong>Published On:</strong> {date}
         </p>
         <TagList tags={categories} />
-        <MDXRemote {...content} />
+        <article className="prose prose-invert mt-4">
+          <MDXRemote {...content} />
+        </article>
       </Section>
     </>
   )

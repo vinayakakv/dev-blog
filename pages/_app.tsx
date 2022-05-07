@@ -35,10 +35,10 @@ function MyApp({ Component, pageProps }: AppProps) {
         />
       </Head>
       <Navbar />
-      <main className="flex h-full w-full flex-col gap-8 overflow-y-auto">
+      <main>
         <Component {...pageProps} />
-        <Footer />
       </main>
+      <Footer />
     </>
   )
 }

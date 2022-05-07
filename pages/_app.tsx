@@ -28,6 +28,11 @@ function MyApp({ Component, pageProps }: AppProps) {
           href="/favicon-16x16.png"
         />
         <link rel="manifest" href="/site.webmanifest" />
+        <meta http-equiv="x-ua-compatible" content="ie=edge" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, shrink-to-fit=no"
+        />
       </Head>
       <Navbar />
       <main className="flex h-full w-full flex-col gap-8 overflow-y-auto">

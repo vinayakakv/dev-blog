@@ -5,13 +5,13 @@ import type {
   GetStaticPaths,
   NextPage,
 } from 'next'
-import { serialize } from 'next-mdx-remote/serialize'
 import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
+import { serialize } from '@helpers/mdx'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,

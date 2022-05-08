@@ -19,7 +19,6 @@ const CategoryDetailsPage: NextPage<
         big
         name={category.title}
         description={`${category.posts.length} article(s)`}
-        className="py-10"
       >
         <BlogGrid posts={category.posts} />
       </Section>

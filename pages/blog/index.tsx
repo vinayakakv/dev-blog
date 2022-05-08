@@ -15,7 +15,6 @@ const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         big
         name="Blog"
         description="I write about the projects I've worked on, and my experience and learnings along the way"
-        className="py-10"
       >
         <div className="grid grid-flow-row grid-cols-1 gap-2 md:grid-cols-2">
           {posts.length > 0 ? (

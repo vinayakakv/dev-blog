@@ -5,32 +5,40 @@ import type {
   GetStaticPaths,
   NextPage,
 } from 'next'
-import { serialize } from 'next-mdx-remote/serialize'
 import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
+import { Link } from '@components/Link'
+import { serialize } from '@helpers/mdx'
+import Head from 'next/head'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
-  const { title, description, date, categories, content } = post
+  const { title, description, date, categories, content, tldr } = post
   return (
     <>
-      <Section
-        big
-        name={title}
-        description={`${description}`}
-        className="py-10"
-      >
+      <Head>
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/dracula-prism/dist/css/dracula-prism.css"
+        />
+      </Head>
+      <Section big name={title} description={`${description}`}>
         <p>
           <strong>Published On:</strong> {date}
         </p>
         <TagList tags={categories} />
-        <article className="prose prose-invert mt-4">
+        <Link href="#summary">TL; DR {'->'}</Link>
+        <article className="prose prose-invert mt-4 max-w-none">
           <MDXRemote {...content} />
         </article>
+        <summary id="summary" className="prose prose-invert mt-4 max-w-none">
+          <h2>TL;DR</h2>
+          <MDXRemote {...tldr} />
+        </summary>
       </Section>
     </>
   )
@@ -51,6 +59,7 @@ export const getStaticProps = async ({
           description
           date
           content
+          tldr
           categories {
             slug
             title
@@ -62,7 +71,11 @@ export const getStaticProps = async ({
       slug,
     },
   })
-  const post = { ...data.post, content: await serialize(data.post.content) }
+  const post = {
+    ...data.post,
+    content: await serialize(data.post.content),
+    tldr: await serialize(data.post.tldr),
+  }
   return {
     props: { post },
   }

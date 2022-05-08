@@ -35,7 +35,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         />
       </Head>
       <Navbar />
-      <main>
+      <main className="mt-10">
         <Component {...pageProps} />
       </main>
       <Footer />

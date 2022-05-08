@@ -4,7 +4,7 @@ import { formatDate } from '@utils'
 import { Button } from '../Button'
 import { Link } from '../Link'
 
-type Props = Omit<Post, 'content'>
+type Props = Omit<Post, 'content' | 'tldr'>
 
 export function BlogCard({
   title,

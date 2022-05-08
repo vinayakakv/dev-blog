@@ -18,12 +18,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   const { title, description, date, categories, content } = post
   return (
     <>
-      <Section
-        big
-        name={title}
-        description={`${description}`}
-        className="py-10"
-      >
+      <Section big name={title} description={`${description}`}>
         <p>
           <strong>Published On:</strong> {date}
         </p>

@@ -11,7 +11,7 @@ const CategoryPage: NextPage<
 > = ({ categories }) => {
   return (
     <>
-      <Section big name="Categories" description="" className="py-10">
+      <Section big name="Categories" description="">
         <div className="flex flex-row flex-wrap gap-2">
           {categories.length > 0 ? (
             categories.map((category) => (

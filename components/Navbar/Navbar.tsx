@@ -29,7 +29,7 @@ export function Navbar() {
     </menu>
   )
   return (
-    <nav className="sticky top-0 left-0 flex w-full flex-col gap-2 bg-gray-900  py-2">
+    <nav className="fixed top-0 left-0 right-0 z-10 mx-auto flex w-full flex-col gap-2 bg-gray-900 py-2">
       <section className="flex flex-row items-center justify-between">
         <span className="text-green-400">
           <Link href="/">dev.vinayakakv</Link>

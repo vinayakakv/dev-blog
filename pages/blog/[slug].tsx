@@ -12,6 +12,7 @@ import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
 import { serialize } from '@helpers/mdx'
+import Head from 'next/head'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
@@ -19,6 +20,12 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   const { title, description, date, categories, content, tldr } = post
   return (
     <>
+      <Head>
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/dracula-prism/dist/css/dracula-prism.css"
+        />
+      </Head>
       <Section big name={title} description={`${description}`}>
         <p>
           <strong>Published On:</strong> {date}

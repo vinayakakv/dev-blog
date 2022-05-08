@@ -6,5 +6,6 @@ export type Post = {
   description: string
   date: string
   content: string
+  tldr: string
   categories: Category[]
 }

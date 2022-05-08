@@ -11,11 +11,12 @@ import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
+import { Link } from '@components/Link'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
-  const { title, description, date, categories, content } = post
+  const { title, description, date, categories, content, tldr } = post
   return (
     <>
       <Section big name={title} description={`${description}`}>
@@ -23,9 +24,14 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
           <strong>Published On:</strong> {date}
         </p>
         <TagList tags={categories} />
+        <Link href="#summary">TL; DR</Link>
         <article className="prose prose-invert mt-4 max-w-none">
           <MDXRemote {...content} />
         </article>
+        <summary id="summary" className="prose prose-invert mt-4 max-w-none">
+          <h2>TL;DR</h2>
+          <MDXRemote {...tldr} />
+        </summary>
       </Section>
     </>
   )
@@ -46,6 +52,7 @@ export const getStaticProps = async ({
           description
           date
           content
+          tldr
           categories {
             slug
             title
@@ -57,7 +64,11 @@ export const getStaticProps = async ({
       slug,
     },
   })
-  const post = { ...data.post, content: await serialize(data.post.content) }
+  const post = {
+    ...data.post,
+    content: await serialize(data.post.content),
+    tldr: await serialize(data.post.tldr),
+  }
   return {
     props: { post },
   }

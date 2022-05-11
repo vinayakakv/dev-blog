@@ -3,7 +3,7 @@ import { Link } from './Link'
 
 export const MDXComponents: MDXRemoteProps['components'] = {
   a: (props) =>
-    props.href?.startsWith('/') ? (
+    ['/', '#'].some((x) => props.href?.startsWith(x)) ? (
       <Link {...props} />
     ) : (
       <Link external {...props} />

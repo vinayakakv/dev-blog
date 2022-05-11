@@ -15,6 +15,10 @@ body {
   @apply bg-gray-900 font-mono text-gray-200;
 }
 
+#__next {
+  @apply h-full w-full;
+}
+
 #contents {
   @apply flex h-full w-full flex-col items-center px-5;
 }

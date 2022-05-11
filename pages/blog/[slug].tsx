@@ -13,6 +13,8 @@ import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
 import { serialize } from '@helpers/mdx'
 import Head from 'next/head'
+import { formatDate } from '@utils'
+import { MDXComponents } from '@components/MDXComponents'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
@@ -29,17 +31,17 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
       </Head>
       <Section big name={title} description={`${description}`}>
         <p>
-          <strong>Published On:</strong> {date}
+          <strong>Published On:</strong> {formatDate(date)}
         </p>
         <TagList tags={categories} />
         <Link href="#summary">TL; DR {'->'}</Link>
         <article className={className}>
-          <MDXRemote {...content} />
+          <MDXRemote {...content} components={MDXComponents} />
         </article>
-        <div id="summary" className={className}>
+        <summary id="summary" className={className}>
           <h2>TL;DR</h2>
-          <MDXRemote {...tldr} />
-        </div>
+          <MDXRemote {...tldr} components={MDXComponents} />
+        </summary>
       </Section>
     </>
   )

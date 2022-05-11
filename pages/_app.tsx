@@ -35,10 +35,12 @@ function MyApp({ Component, pageProps }: AppProps) {
         />
       </Head>
       <Navbar />
-      <main className="mt-10">
-        <Component {...pageProps} />
-      </main>
-      <Footer />
+      <div id="contents">
+        <main className="mt-20">
+          <Component {...pageProps} />
+        </main>
+        <Footer />
+      </div>
     </>
   )
 }

@@ -7,15 +7,23 @@ body {
   @apply h-full w-full;
 }
 
+html {
+  @apply scroll-smooth;
+}
+
 body {
   @apply bg-gray-900 font-mono text-gray-200;
 }
 
 #__next {
+  @apply h-full w-full;
+}
+
+#contents {
   @apply flex h-full w-full flex-col items-center px-5;
 }
 
-#__next > * {
+#contents > * {
   @apply w-full max-w-4xl;
 }
 
@@ -38,5 +46,9 @@ body {
 
   h3 {
     @apply text-xl;
+  }
+
+  summary::marker {
+    content: '';
   }
 }

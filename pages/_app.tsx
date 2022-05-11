@@ -36,7 +36,7 @@ function MyApp({ Component, pageProps }: AppProps) {
       </Head>
       <Navbar />
       <div id="contents">
-        <main className="mt-10">
+        <main className="mt-20">
           <Component {...pageProps} />
         </main>
         <Footer />

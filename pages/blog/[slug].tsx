@@ -6,6 +6,7 @@ import type {
   NextPage,
 } from 'next'
 import { MDXRemote } from 'next-mdx-remote'
+import type { MDXRemoteProps } from 'next-mdx-remote'
 import { Section } from '@components/Section'
 import client from '@helpers/graphql'
 import { Post } from '@schema/post'
@@ -13,6 +14,15 @@ import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
 import { serialize } from '@helpers/mdx'
 import Head from 'next/head'
+
+const components: MDXRemoteProps['components'] = {
+  a: (props) =>
+    props.href?.startsWith('/') ? (
+      <Link {...props} />
+    ) : (
+      <Link external {...props} />
+    ),
+}
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
@@ -34,11 +44,11 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         <TagList tags={categories} />
         <Link href="#summary">TL; DR {'->'}</Link>
         <article className={className}>
-          <MDXRemote {...content} />
+          <MDXRemote {...content} components={components} />
         </article>
         <summary id="summary" className={className}>
           <h2>TL;DR</h2>
-          <MDXRemote {...tldr} />
+          <MDXRemote {...tldr} components={components} />
         </summary>
       </Section>
     </>

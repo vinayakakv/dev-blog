@@ -1,5 +1,6 @@
 import React from 'react'
 import NextLink from 'next/link'
+import { twMerge } from 'tailwind-merge'
 
 type Props = React.HTMLProps<HTMLAnchorElement> & { external?: boolean }
 
@@ -9,7 +10,7 @@ export function Link({
   className = '',
   ...rest
 }: Props) {
-  const finalClassName = `text-green-400 hover:underline ${className}`
+  const finalClassName = twMerge('text-green-400 hover:underline', className)
   return external ? (
     <a href={href} className={finalClassName} target="_blank" {...rest} />
   ) : (

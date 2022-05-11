@@ -36,10 +36,10 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         <article className={className}>
           <MDXRemote {...content} />
         </article>
-        <div id="summary" className={className}>
+        <summary id="summary" className={className}>
           <h2>TL;DR</h2>
           <MDXRemote {...tldr} />
-        </div>
+        </summary>
       </Section>
     </>
   )

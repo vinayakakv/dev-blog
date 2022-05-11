@@ -39,4 +39,8 @@ body {
   h3 {
     @apply text-xl;
   }
+
+  summary::marker {
+    content: '';
+  }
 }

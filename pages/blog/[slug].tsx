@@ -18,6 +18,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
   const { title, description, date, categories, content, tldr } = post
+  const className = `prose prose-invert mt-4 max-w-none prose-custom`
   return (
     <>
       <Head>
@@ -32,13 +33,13 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         </p>
         <TagList tags={categories} />
         <Link href="#summary">TL; DR {'->'}</Link>
-        <article className="prose prose-invert mt-4 max-w-none">
+        <article className={className}>
           <MDXRemote {...content} />
         </article>
-        <summary id="summary" className="prose prose-invert mt-4 max-w-none">
+        <div id="summary" className={className}>
           <h2>TL;DR</h2>
           <MDXRemote {...tldr} />
-        </summary>
+        </div>
       </Section>
     </>
   )

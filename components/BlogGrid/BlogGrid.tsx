@@ -7,7 +7,7 @@ type Props = {
 
 export function BlogGrid({ posts }: Props) {
   return (
-    <div className="grid grid-flow-row grid-cols-1 gap-2 md:grid-cols-2">
+    <div className="grid grid-flow-row grid-cols-1 gap-4 md:grid-cols-2">
       {posts.map((post) => (
         <BlogCard
           title={post.title}

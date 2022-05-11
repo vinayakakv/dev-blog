@@ -15,11 +15,11 @@ body {
   @apply bg-gray-900 font-mono text-gray-200;
 }
 
-#__next {
+#contents {
   @apply flex h-full w-full flex-col items-center px-5;
 }
 
-#__next > * {
+#contents > * {
   @apply w-full max-w-4xl;
 }
 

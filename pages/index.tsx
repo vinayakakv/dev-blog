@@ -8,13 +8,16 @@ import client from '@helpers/graphql'
 import { Post } from '@schema/post'
 import { Placeholder } from '@components/Placeholder'
 import { BlogGrid } from '@components/BlogGrid'
+import { Meta } from '@schema/meta'
+import { serialize } from '@helpers/mdx'
 
 const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,
+  meta,
 }) => {
   return (
     <>
-      <Hero />
+      <Hero featuredContentMdx={meta.content} />
       <Section
         name="Blog"
         description="I write about the projects I've worked on, experience and learnings along the way"
@@ -35,7 +38,7 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
 export default Home
 
 export const getStaticProps = async () => {
-  const { data } = await client.query<{ posts: Post[] }>({
+  const { data } = await client.query<{ posts: Post[]; meta: Meta }>({
     query: gql`
       query {
         posts(first: 4, orderBy: date_DESC) {
@@ -48,10 +51,14 @@ export const getStaticProps = async () => {
             title
           }
         }
+        meta(where: { key: "featuredContent" }) {
+          content
+        }
       }
     `,
   })
+  const meta = { content: await serialize(data.meta.content) }
   return {
-    props: { posts: data.posts },
+    props: { posts: data.posts, meta },
   }
 }

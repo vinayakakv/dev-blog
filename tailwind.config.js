@@ -12,6 +12,7 @@ module.exports = {
             'blockquote p:first-of-type::after': { content: 'none' },
             blockquote: { fontStyle: 'normal' },
             code: { wordWrap: 'break-word' },
+            a: { textDecoration: 'none' },
           },
         },
       },

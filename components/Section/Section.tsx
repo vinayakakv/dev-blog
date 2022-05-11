@@ -17,7 +17,7 @@ export function Section({
 }: Props) {
   const H = big ? 'h1' : 'h2'
   return (
-    <section className={`flex flex-col gap-2 ${className}`}>
+    <section className={`flex flex-col gap-4 ${className}`}>
       <H>{name}</H>
       <p>{description}</p>
       {children}

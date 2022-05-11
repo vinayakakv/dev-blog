@@ -19,16 +19,14 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         name="Blog"
         description="I write about the projects I've worked on, experience and learnings along the way"
       >
-        <div className="grid grid-flow-row grid-cols-1 gap-2 md:grid-cols-2">
-          {posts.length > 0 ? (
-            <>
-              <BlogGrid posts={posts} />
-              <Link href="/blog">See more! {'->'}</Link>
-            </>
-          ) : (
-            <Placeholder>Coming soon!</Placeholder>
-          )}
-        </div>
+        {posts.length > 0 ? (
+          <>
+            <BlogGrid posts={posts} />
+            <Link href="/blog">See more! {'->'}</Link>
+          </>
+        ) : (
+          <Placeholder>Coming soon!</Placeholder>
+        )}
       </Section>
     </>
   )

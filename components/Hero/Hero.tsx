@@ -17,11 +17,6 @@ export function Hero({ featuredContentMdx }: Props) {
       <p className="prose prose-invert max-w-2xl">
         <MDXRemote {...featuredContentMdx} components={MDXComponents} />
       </p>
-      <p className="text-xl">
-        <Link href="https://vinayakakv.com" external>
-          I also hunt mountains, do photography and write about nature! {'->'}
-        </Link>
-      </p>
     </section>
   )
 }

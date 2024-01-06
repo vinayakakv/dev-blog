@@ -2,7 +2,9 @@ import React from 'react'
 import NextLink from 'next/link'
 import { twMerge } from 'tailwind-merge'
 
-type Props = React.ComponentProps<NextLink> & { external?: boolean }
+type Props = Omit<React.HTMLProps<HTMLAnchorElement>, 'ref'> & {
+  external?: boolean
+}
 
 export function Link({
   href,

@@ -15,14 +15,36 @@ import { serialize } from '@helpers/mdx'
 import Head from 'next/head'
 import { formatDate } from '@utils'
 import { MDXComponents } from '@components/MDXComponents'
+import { ArticleJsonLd, DefaultSeo } from 'next-seo'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
-  const { title, description, date, categories, content, tldr } = post
+  const { title, description, date, categories, content, tldr, slug } = post
   const className = `prose prose-invert mt-4 max-w-none prose-custom`
   return (
     <>
+      <ArticleJsonLd
+        title={title}
+        description={description}
+        datePublished={date}
+        url={`https://dev.vinayakakv.com/blog/${slug}`}
+        images={[]}
+        authorName="Vinayaka K V"
+      />
+      <DefaultSeo
+        title={title}
+        description={description}
+        openGraph={{
+          type: 'article',
+          url: `https://dev.vinayakakv.com/blog/${slug}`,
+          article: {
+            authors: ['Vinayaka K V'],
+            publishedTime: date,
+            tags: categories.map((category) => category.title),
+          },
+        }}
+      />
       <Head>
         <link
           rel="stylesheet"

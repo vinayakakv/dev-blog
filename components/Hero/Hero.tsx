@@ -12,9 +12,9 @@ export function Hero({ featuredContentMdx }: Props) {
       <p className="text-4xl">
         I build software <b className="text-green-400">that matters.</b>
       </p>
-      <p className="prose prose-invert max-w-none">
+      <section className="prose prose-invert max-w-none">
         <MDXRemote {...featuredContentMdx} components={MDXComponents} />
-      </p>
+      </section>
     </section>
   )
 }

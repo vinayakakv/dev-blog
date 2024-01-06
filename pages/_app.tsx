@@ -4,6 +4,7 @@ import type { AppProps } from 'next/app'
 import Head from 'next/head'
 import { Navbar } from '@components/Navbar'
 import { Footer } from '@components/Footer'
+import { DefaultSeo } from 'next-seo'
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -35,6 +36,10 @@ function MyApp({ Component, pageProps }: AppProps) {
         />
       </Head>
       <Navbar />
+      <DefaultSeo
+        title="dev.vinayakakv"
+        description="Dev Blog of Vinayaka K V"
+      />
       <div id="contents">
         <main className="mt-20">
           <Component {...pageProps} />

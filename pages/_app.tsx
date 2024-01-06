@@ -4,6 +4,7 @@ import type { AppProps } from 'next/app'
 import Head from 'next/head'
 import { Navbar } from '@components/Navbar'
 import { Footer } from '@components/Footer'
+import { DefaultSeo, WebPageJsonLd } from 'next-seo'
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -35,6 +36,33 @@ function MyApp({ Component, pageProps }: AppProps) {
         />
       </Head>
       <Navbar />
+      <DefaultSeo
+        title="dev.vinayakakv"
+        description="Dev Blog of Vinayaka K V"
+        openGraph={{
+          type: 'website',
+          url: 'https://dev.vinayakakv.com',
+          locale: 'en_US',
+          profile: {
+            firstName: 'Vinayaka',
+            lastName: 'K V',
+          },
+        }}
+        twitter={{
+          handle: '@me.vinayakakv',
+          cardType: 'summary_large_image',
+        }}
+        canonical="https://dev.vinayakakv.com"
+      />
+      <WebPageJsonLd
+        description="Dev Blog of Vinayaka K V"
+        id="https://dev.vinayakakv.com"
+        lastReviewed={new Date().toISOString()}
+        reviewedBy={{
+          type: 'Person',
+          name: 'Vinayaka K V',
+        }}
+      />
       <div id="contents">
         <main className="mt-20">
           <Component {...pageProps} />

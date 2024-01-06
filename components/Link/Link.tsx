@@ -2,7 +2,9 @@ import React from 'react'
 import NextLink from 'next/link'
 import { twMerge } from 'tailwind-merge'
 
-type Props = React.HTMLProps<HTMLAnchorElement> & { external?: boolean }
+type Props = Omit<React.HTMLProps<HTMLAnchorElement>, 'ref'> & {
+  external?: boolean
+}
 
 export function Link({
   href,
@@ -14,8 +16,6 @@ export function Link({
   return external ? (
     <a href={href} className={finalClassName} target="_blank" {...rest} />
   ) : (
-    <NextLink href={href!} passHref>
-      <a className={finalClassName} {...rest} />
-    </NextLink>
+    <NextLink href={href!} className={finalClassName} {...rest} />
   )
 }

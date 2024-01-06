@@ -20,7 +20,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
   const { title, description, date, categories, content, tldr } = post
-  const className = `prose prose-invert mt-4 max-w-none prose-custom prose-h2:sticky prose-h2:top-8 prose-h2:py-4 prose-h2:bg-gray-900`
+  const className = `prose prose-invert mt-4 max-w-none prose-custom`
   return (
     <>
       <Head>

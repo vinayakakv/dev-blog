@@ -29,7 +29,7 @@ export function Navbar() {
     </menu>
   )
   return (
-    <nav className="fixed top-0 left-0  z-10 w-full bg-gray-900 bg-opacity-60 px-5 py-2 backdrop-blur-3xl">
+    <nav className="fixed top-0 left-0  w-full bg-gray-900 bg-opacity-60 px-5 py-2 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
         <section className="flex flex-row items-center justify-between">
           <span className="text-green-400">

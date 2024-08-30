@@ -1,10 +1,8 @@
-import { gql } from '@apollo/client'
 import type { InferGetStaticPropsType, NextPage } from 'next'
 import { BlogCard } from '@components/BlogCard'
 import { Section } from '@components/Section'
-import client from '@helpers/graphql'
-import { Post } from '@schema/post'
 import { Placeholder } from '@components/Placeholder'
+import { getMdxFiles } from '@helpers/mdx'
 
 const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   posts,
@@ -40,23 +38,14 @@ const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
 export default Blog
 
 export const getStaticProps = async () => {
-  const { data } = await client.query<{ posts: Post[] }>({
-    query: gql`
-      query {
-        posts(orderBy: date_DESC) {
-          slug
-          title
-          description
-          date
-          categories {
-            slug
-            title
-          }
-        }
-      }
-    `,
-  })
+  const posts = await getMdxFiles<'posts'>('posts')
+
+  // Sort posts by date in descending order
+  const sortedPosts = posts.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  )
+
   return {
-    props: { posts: data.posts },
+    props: { posts: sortedPosts },
   }
 }

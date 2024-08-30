@@ -1,7 +1,8 @@
-import type { Post } from './post'
+import { z } from 'zod'
 
-export type Category = {
-  title: string
-  slug: string
-  posts: Post[]
-}
+export const categorySchema = z.object({
+  title: z.string(),
+  slug: z.string(),
+})
+
+export type Category = z.infer<typeof categorySchema>

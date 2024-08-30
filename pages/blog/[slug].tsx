@@ -1,4 +1,3 @@
-import { gql } from '@apollo/client'
 import type {
   InferGetStaticPropsType,
   GetStaticPropsContext,
@@ -7,11 +6,9 @@ import type {
 } from 'next'
 import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
-import client from '@helpers/graphql'
-import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
-import { serialize } from '@helpers/mdx'
+import { serialize, readMdxFile, getMdxFiles } from '@helpers/mdx'
 import Head from 'next/head'
 import { formatDate } from '@utils'
 import { MDXComponents } from '@components/MDXComponents'
@@ -74,50 +71,22 @@ export default BlogPost
 export const getStaticProps = async ({
   params,
 }: GetStaticPropsContext<{ slug: string }>) => {
-  const { slug } = params!
-  const { data } = await client.query<{ post: Post }>({
-    query: gql`
-      query getBlogpost($slug: String) {
-        post(where: { slug: $slug }) {
-          slug
-          title
-          description
-          date
-          content
-          tldr
-          categories {
-            slug
-            title
-          }
-        }
-      }
-    `,
-    variables: {
-      slug,
-    },
-  })
-  const post = {
-    ...data.post,
-    content: await serialize(data.post.content),
-    tldr: await serialize(data.post.tldr),
-  }
+  const post = await readMdxFile('posts', `${params!.slug}.mdx`)
   return {
-    props: { post },
+    props: {
+      post: {
+        ...post,
+        content: await serialize(post.content),
+        tldr: await serialize(post.tldr),
+      },
+    },
   }
 }
 
 export const getStaticPaths: GetStaticPaths = async () => {
-  const { data } = await client.query<{ posts: Post[] }>({
-    query: gql`
-      query {
-        posts {
-          slug
-        }
-      }
-    `,
-  })
+  const posts = await getMdxFiles('posts')
   return {
-    paths: data.posts.map(({ slug }) => ({ params: { slug } })),
+    paths: posts.map(({ slug }) => ({ params: { slug } })),
     fallback: false,
   }
 }

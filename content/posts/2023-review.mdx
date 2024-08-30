@@ -1,0 +1,909 @@
+---
+slug: 2023-review
+title: "2023 - Year In Review"
+description: "As a software engineer, I helped build a few systems and products at work this year. Here I present a high level overview of my learnings and thoughts without specificities to the products I built."
+date: "2023-12-19"
+tldr: |
+  I discuss what I did in work this year, with 12 sections, summarized as:
+  
+  1. **Building webhook receivers**, and the best practices regarding response
+  handling, data processing, auth and PII handling
+  2. **Implementing a distributed cache** for NodeJS servers, and the emergence
+  of the Cache Tree and its pruning (I won't leave any spoilers for this one. Go
+  read about it!)
+  3. How to **make best use of your work machine** by running software locally,
+  and how I helped implement that
+  4. Solving package distribution and out of date package tech debt using
+  **Monorepos**
+  5. **NodeJS bundling** for the back-end code and our journey with `esbuild`
+  6. Building a **Shopify app** in an accelerated manner, and the learnings along
+  the way
+  7. **Murphy's law** and how we learned to prepare for and handle failures
+  8. Building a **Chrome Extension** with Bun and React, and exploration of some
+  of its APIs (we built a Proxy!)
+  9. Few **Web Standards** we utilized along the way
+  10. When the Data Structure course learnings manifest at work - **Bloom
+  Filters**
+  11. **AI AI AI!**
+  12. Usual Ops Rants - Read them!
+  
+categories: []
+---
+
+## 1. Webhooks
+
+If you are building a notification-based system where you want to notify any
+external entity about an event that happens in your system, webhooks are the
+way to go. Webhooks are simple HTTP endpoints (mostly POST) that are registered
+at the site of the sender. The sender makes HTTP calls to the endpoint whenever
+an event happens. The sender can implement authentication mechanisms and retry
+logic as well. I was at the receiving end of the webhooks; our job was to
+consume the data that was sent to us by a third party.
+
+### Uptime
+
+Since events can happen at any time, it is important for the receiver to be up
+always. The sender can implement retry mechanisms in case the receiver is down
+(mostly indicated by `502 GatewayTimeout`, but can be any other error as well),
+however, it is good to catch the events the first time. Some senders can also
+stop sending events when they get too many errors. So, we had our receiver
+deployed in Kubernetes (GKE) with scaling and health check configs defined.
+And, we have never observed a downtime ever since.
+
+### No `throw new InternalServerError()`!
+
+`500 InternalServerError` is the scariest. If the server does not have good
+error logging (which is not the case most of the time), debugging them is very
+hard. But imagine yourself throwing `500`s! We made that mistake initially
+using `500` as a catch-all error code. Eventually, webhook sender started
+poking us about `500`s they observed. We eventually had to replace all `500`
+throws with appropriate error codes with the following rules in mind:
+
+- If the error is from the sender side, return a non-success status, such as
+`400 BadRequest`. The sender can retry the message, which hopefully will become
+successful 
+- If the error is from our side (the receiver) and we can't do anything to fix
+the error, there is no point in asking the sender to send the message back.
+Thus, send a success status and log the error so that someone/some process can
+review and take further action on it
+
+### Handling PII
+
+PII is Personally Identifiable Information such as the name, email and address
+of an individual, around which there are strict laws about how to handle them.
+The sender was sending us PII, which we did not require and did not want to be
+captured in any of our systems, including logs. Fortunately, we had turned
+request logging off in the Ingress, and with the help of
+[Zod](https://zod.dev/), were able to filter only the fields that we required.
+
+### Schema
+
+Zod takes care of defining the schema and validating whether the data follows
+the schema. While the sender in our case has defined a schema, it was unclear
+and quite messy. We had to do trial and error in production (yes, we missed
+some data) to get the schema correct and sometimes broaden it. To give out a
+concrete example, there was an ID field which was sometimes a number and other
+times a string 😅
+
+### Authorization
+
+Since the webhook receiver is a simple public HTTP endpoint, anyone can send
+data to it. This is a huge problem and can cause data pollution in our case.
+Webhook senders can rely on several mechanisms to authorize their message
+(i.e., we can be sure that it is them who sent us this message)
+
+- [**HTTP Basic
+Authentication**](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication)
+(yeah, it says authentication, but can be used for authorization as well) -
+Sent as base64 encoded `username:password` string in the `Authorization` header
+(see, now it is authorization again - HTTP Standards 😁). Sender and Reciever
+agree on `username` and `password` which are kept secret. These credentials are
+sent along with every request and **do not change** with each request.
+- [**HMAC Authorization**](https://en.wikipedia.org/wiki/HMAC): HMAC stands for
+**H**ashed **M**essage **A**uthentication **C**ode. The basic idea is simple -
+1. take the message and a shared secret, 2. concatenate them, 3. take the hash
+of it and send it along with the message. The receiver with the knowledge of
+the message and the shared secret can repeat the same computation to derive
+their own hash. If the hashes are equal, the authenticity of the message is
+established. The actual algorithm goes one step further to make the operation
+more robust. The important thing to note here is that the credential (the hash)
+**changes** with every message.
+
+In both of the cases, it is important to keep the secrets _secret_. An
+adversary with the knowledge of secrets can forge a message without the
+knowledge of the receiver. Cryptography can protect us, but we need to protect
+the keys 🔑. In our case, the sender implemented HMAC authentication and we got
+the secrets from them. We stored the secrets securely and made sure that it is
+never logged and sent in the API responses of our system.
+
+### Beware of Middlewares
+
+When we implemented HMAC, the local tests were all working fine, but all
+messages were rejected with `401 Unauthorized` in production. We were confused
+as to why this was the case, and the culprit turned out to be the body parser.
+When our Fastify server gets a message, it parses the body based on the
+`Content-Type` header. In our case, it was `application/json` and we got an
+object back in the response handler. We converted it to JSON before calculating
+HMAC. But it turned out that we needed access to the raw body. We hooked into
+the appropriate place and were able to add a `rawBody: Buffer | string` to the
+request object. This body was sent to HMAC and we were able to get the correct
+hashes.
+
+### Message Processing
+
+We deploy webhooks to listen to messages sent by a third party. But what is the
+point of setting them up without handling the data we receive? Where to do the
+data processing is an important architectural decision to make. If the data can
+be processed fast enough, the webhook route can contain the processing logic.
+Oftentimes, this is not the case. When the processing time increases, the
+sender ends up waiting for the response and might potentially experience
+timeout issues, causing them to retry more. This is a bad situation to be in,
+as the new message requires further processing. We ended up putting the
+messages in an MQ and sending a successful response immediately. The MQ
+consumer can handle the messages at its own pace without impacting the webhook.
+This also enables us to scale the webhook and the message processor
+independently. 
+
+### Getting rid of `groupBy` aggregations
+
+The concept of `groupBy` and realtime data do not fit in nicely. We do not know
+whether we are finished receiving a _group_ yet or not when we are operating in
+a real-time mode. The groups sometimes need to be stored in memory, which might
+cause performance bottlenecks. We have been experiencing this problem for a
+long time, and moving to real-time data processing using webhooks motivated us
+to solve this problem once and for all.
+
+We were fortunate that our database model allowed us to generate the aggregate
+incrementally, rather than needing to commit everything at once. We ended up
+doing `row := f(row, newChunk)` instead of `row := g(chunk1, chunk2, ...)`,
+where `f` and `g` represent the operations on the data, by compromising a few
+assumptions about our system. **Again, engineering is about choosing a perfect
+trade-off**; we got rid of waiting and huge memory usage by switching to
+real-time mode by sacrificing a little assumption and more DB writes.
+
+## 2. Implementing a Distributed Cache!
+
+One of our NodeJS applications was doing heavy DB reads on the tables which did
+not change often. We implemented a simple in-memory cache helper that can be
+used something like `const cachedFunction = cached(function)` with all the
+type-safety. The `cached` function also introduced a function `invalidate` on
+the `cachedFunction`, which can be used to empty the cache.
+
+As our use cases grew, we used the `cached` utility to wrap the controllers
+backing our UI data. Everything was running fine in production until we decided
+to increase the number of replicas of our application in k8s. UI users started
+reporting inconsistent states in the UI, where the resource they edited was not
+being successfully shown back in the UI (yeah, we did a `GET` request to
+refresh the UI after a `POST` to save, we were lazy to build lazy UIs for this
+internal application)
+
+We immediately got to know that the issue was with the cache, and decided to
+move it out of the memory and share it across the replicas. There was an
+in-memory/external hybrid cache built in Scala by the veterans that relied on
+message passing to bust out in-memory cache entities while updating the
+external cache simultaneously. Since we did not have the luxury of using Scala
+code in our NodeJS application (Scala to WASM? 🧐), we decided to go with a
+simple route of using only external cache backed by Redis.
+
+We initially went ahead with Redis Dictionary with the key
+`cache/${functionId}`. JS provides `Function.toString()` to get the code of the
+function (look, no fancy `Reflection` 😛), which we hashed to get the
+`functionId`. Then, we took the JSON of the argument, and stored it as a
+dictionary key, with the JSON of the result stored in the value. While it
+worked fine, it suffered with respect to invalidation. Redis does not support
+expiring individual keys of the dictionary to keep life simple. So it was an
+all-or-nothing approach - expire the entire function cache or keep all of them,
+which surely is not flexible.
+
+In the end, we resorted to using plain Redis key space with keys being in the
+format `cache/${functionId}/arg1/arg2/...` where `argN` is the JSON
+representation of the function argument. Our cache looks like a tree now with
+the branches occurring whenever the arguments change. With this, we can expire
+individual keys. To do so, we parametrized the `invalidate` function to take a
+prefix of function arguments. For example, if we have a function `f(a,b,c)`, if
+we call `invalidate(a)`, it will prune the _Cache Tree_ for all arguments
+starting with `a`. If we call `invalidate(a,b,c)`, we target a specific
+element. This tree structure allowed us to retrospect on function prototype
+design - while you can have `getRows(tableName, columns, filter)` and
+`getRows(filter, columns, tableName)` doing the same thing, the order matters
+if this function is cached - we want the invalidations to be minimal (If we can
+have 3 args in an object, the concern is gone and the code becomes more
+readable too!). As an added bonus, the `invalidate` function is also type-safe
+- In `f(a,b,c)`, if `a ` was of type `string`, you can't pass `number` as the
+first argument to `invalidate` (expect an article on how we did this 🙂). While
+this implementation is solid and flexible, **everything comes with a tradeoff**
+and we ended up doing an O(n) `SCAN + DELETE` during invalidation.
+
+## 3. Going Local-First (Use your Apple Silicon!)
+
+Developer Productivity is important for any company. CI/CD exists to test and
+deploy a commit without the developer needing to do anything, but having a
+preview while development always helps. Most, if not all, modern web frameworks
+come up with a way to run a local server with a live preview. This might be
+challenging to build in a work environment due to dependencies on external
+entities such as databases with a copy of production-like data. While running
+an entire database on a local machine is possible by restoring the production
+backup, it takes time and is hard to keep it up-to-date. Here is a solution
+that I came up with at my workplace:
+
+- Running low coupled dependencies using `docker-compose` - We run Redis,
+Memcached, RabbitMQ and sometimes Postgres as well
+- Tunnelling some dependencies using `ssh` - assuming the dependencies are
+accessible in a VM, and you can access the VM `remoteVm`, it is easy to tunnel
+the connection to your local machine - `ssh -N -L
+localPort:remoteHost:remotePort localPort2:remoteHost2:remotePort2 remoteVm`
+(Thanks to a colleague for pointing this out!). We forwarded Postgres most of
+the time, along with the HashiCorp Consul for remote service discovery.
+
+This was an easy setup and we wrapped it in a NodeJS script (we could've done
+it in `bash`, but I couldn't give up `await Promise.all()` to run processes in
+parallel). This script is invoked in the `dev` script of every project, making
+life easy. We were able to save hundreds of developer hours with this setup,
+thanks to containers and tunnels.
+
+## 4. Hi, Monorepos
+
+At some point in our time, our NodeJS project grew big and we had several
+utilities in it. New NodeJS projects were on the horizon where these utilities
+could be obviously useful. Here we hit a branching in the path, we could either
+
+- Publish utils as a NodeJS package to a package registry and use it in other
+packages, or
+- Have utils as a package in a monorepo and use it in other packages in the
+same monorepo.
+
+Both of the options have pros and cons - as any other options in tech do.
+Publishing a package needs its own CI, and comes with versioning nightmares if
+not done correctly. But they allow multiple users to use different versions of
+the library (Not sure if this is a Pro or Con – in my opinion, it is definitely
+a Con and creates tech debt). On the other hand, a monorepo avoids all the
+configuration needed apart from setting it up and forces all the clients to use
+the latest version of the libraries. This makes library authors mindful of not
+introducing any breaking API changes and new behaviours unless absolutely
+needed. Read [monorepo.tools](https://monorepo.tools) for good coverage on this
+topic. We ended up choosing `turborepo` and `pnpm` workspaces for us. We needed
+to slightly modify our container builds to not include any unnecessary
+dependencies. All in all, we now have 3 libraries and 4 projects in our
+monorepo, with the number of the projects expected to grow further.
+
+## 5. Building NodeJS Build Tooling
+
+We embrace Type-Safety for JavaScript (we also do care a lot about not typing
+the things explicitly where it can be inferred - who wants `Car car = new
+Car()`?) – so TypeScript is our go-to choice. That comes with an additional
+step of compiling TypeScript to JavaScript, where `tsc` gets us covered. Over
+time, when moving to monorepos, we figured out that we needed libraries with
+multiple entry points (allowing us to `import {dbClient} from
+"library/database"`, `import {mqClient} from "library/mq"`, for example). Plain
+`tsc` gets us a one-to-one mapping from `ts` to `js` files in the `dist`
+folder, with us needing to edit the `exports` field of `package.json` manually.
+What if we could `"exports": "dist/*.js"`?!
+
+Welcome to the world of bundling, where it is common in front-end builds. Take
+a React application - if not bundle split, all your logic lives inside
+`index.js`, which is loaded by `index.html` with just a `script` tag pointing
+to the `js` file. We chose [ESBuild](https://esbuild.github.io/) for bundling
+our project, with an `entryPoints: string[]` defining the list of the files
+that we wanted to expose. ESbuild takes care of bundling their requirements
+together, compiling TypeScript to JavaScript (it does not do any type-check, we
+need to run `tsc` with `noEmit` before we invoke the actual build). As an added
+bonus, we also got a `watch` capability for the dev servers. We haven't tackled
+watching the workspace dependency libraries yet, since it has not been a
+problem for us till now.
+
+For the frontend bundling and dev server, we use [Vite](https://vitejs.dev/)
+and could not ask for a better solution. We follow an opinionated folder
+structure reflecting the UI routes. We use this information to split our bundle
+into multiple chunks per a top-level path, which can be loaded in parallel by
+the browser when loading `index.html`.
+
+## 6. Building a Shopify App
+
+[Shopify](https://shopify.com/) is a platform for anyone to build an e-commerce
+store with management capabilities and nice UX out of the box, which can be
+further personalized according to the merchant's requirements. Shopify allows
+to extend its functionality via third-party _apps_, which can integrate into
+lots of surfaces within it, ranging from admin-facing UI to user-facing UI. The
+apps need to be hosted somewhere but can choose to render on Shopify's Admin UI
+inside an `iframe` (called as Embedded Apps) or externally (called as Non
+Embedded Apps). I got the opportunity to build a Non-Embedded App this year.
+
+Getting to build things from scratch where the requirements and deadlines are
+clear but nothing else is is interesting. You get to be the UI/UX designer and
+a Product Manager thinking of the user and the flow, You get to be the infra
+person defining the CI/CD processes, and ultimately you are the Full Stack
+person building the application itself – [yeah, jack of all
+trades](https://twitter.com/GergelyOrosz/status/1734838235287720155). The core
+challenge for an engineer building an external integration is the understanding
+of the target APIs, their requirements and the constraints. Shopify shines in
+this aspect here by providing excellent developer docs at
+[shopify.dev](https://shopify.dev). Their GraphQL playgrounds are also
+excellent and help test things out before actually coding them. So, it was an
+absolutely seamless experience. 
+
+### The Tech Stack
+
+A Shopify External app is simply a web app that uses Shopify's APIs to
+communicate with a Shop to read and modify its state. As such, we could have
+gone with a Full-Stack React framework like Remix, to avoid moving back and
+forth between API routes, API handler in the UI, and the UI component itself.
+Due to some constraints, we decided to go with the exact architecture we wanted
+to avoid - [Fastify](https://fastify.dev/) NodeJS server, Vite React Frontend
+sitting inside a monorepo (**compromises are inevitable in tech**, but we did
+not end up in a severely bad position, which is okay). For new projects,
+[Shopify's template](https://github.com/Shopify/shopify-app-template-remix)
+comes with Remix.
+
+### Shopify APIs
+
+Shopify provides GraphQL and REST APIs, with the former being preferred. The
+version their APIs with `yyyy-mm` format and have clear deprecation policies.
+One common source of frustration is that the response schema is vastly
+different between GraphQL and REST APIs for the same concern. Their NodeJS
+client SDK also provides useful wrappers around the most commonly used APIs,
+such as auth and billing.
+
+### Type Safe GraphQL
+
+Both TypeScript and GraphQL embrace the concept of type safety, but it is sad
+that they do not embrace each other due to their differing philosophies (Hi
+[tRPC](https://trpc.io/)!) To solve this, we need to have some sort of typegen
+that can help TypeScript understand the types. We ended up downloading
+Shopify's GraphQL Schema definition, hosting it in our repo (it is a big fat
+JSON, sad to the ones who count code lines as metrics) and using
+[`@appolo/client`](https://www.apollographql.com/docs/react/) to do the
+typegen. They provide a `gql` function to begin with (this is a normal
+function, not a tagged-template literal function with the same name - it was
+one of the confusing points) and the typegen looks for the named queries and
+mutations being passed into it to generate the types (being *named* is an
+important point here). This makes the call sites type-safe by providing type
+information for the variables and return types. We made type generation run
+along with the dev server and the build script, along with making generated
+types not committed to the main repo.
+
+### Handling Rate Limiting (Spoiler: We didn't)
+
+Shopify's Admin GraphQL requests are [rate
+limited](https://shopify.dev/docs/api/usage/rate-limits) via a leaky bucket
+mechanism. We get pre-allocated tokens for every time window and each query and
+mutation consumes some of them. If a query needs more tokens than we have, we
+get a rate-limiting response. We had use-cases for pulling large amounts of
+data using Shopify APIs, but building a system that is robust and correct is
+interesting and challenging, and it meant us tackling engineering problem
+instead of a business one.
+
+Fortunately, we managed to bypass the rate-limiting by using Shopify's [Bulk
+APIs](https://shopify.dev/docs/api/usage/bulk-operations/queries), which
+execute a given query and notifies us with the export of the data once the
+execution is complete. On some other occasion, we managed to look up the data
+from within our own database instead of calling Shopify APIs. 
+
+I think the moral of the story is that being lazy (*read: thinking out of the
+box*) helps to expand the horizon of possible solutions, which might be more
+plausible and cost-effective sometimes.  We could have built a perfect
+rate-limiting solution, but it could have taken a few weeks in development and
+testing and would have required some maintenance due to an edge case no one had
+imagined.
+
+### Implicit State Machine
+
+Every software and hardware is an implicit state machine. Since our app
+involved a flow-based onboarding mechanism, it made more sense for us to store
+them in the DB as `{stepADone: boolean, stepBDone: boolean, stepCDone: boolen}`
+(no, there were no booleans apart from some. I am oversimplifying the things
+there - I hear you screaming that I could've used an `enum` here!). Then, an
+API call gets this state in the React Router `loader`. Based on the current
+state we are in, it redirects the user to a certain page. We embraced the React
+philosophy of `UI = f(state)`, from the component level to the application
+level.
+
+We made sure that a user can not land in an invalid state by making sure that:
+
+- executing routing logic at the top level `loader` - if a user enters a URL
+corresponding to a not-yet-accessible state, the loader will just redirect them
+back to the state they are in. 
+- not to include `<Link/>`s for these states anywhere.
+
+After all the measures in place, we could not solve the back-button problem,
+where the browser takes the user to the previous page and skips executing the
+`loader`, we made a compromise - **it was a feature** for the user to edit
+whatever they have done in the previous step, **not a bug** :sweat_smile:
+
+### Resource Creation and Idempotency
+
+At one point in the flow, we had to create a resource in the backend which
+should be unique. The API to create that resource had no such restrictions and
+happily created another resource with a new key. Fortunately, we got to
+understand this problem during development, thanks to `React.StrictMode`
+calling `useEffect` twice (you might yell at me saying [I might not need an
+effect](https://react.dev/learn/you-might-not-need-an-effect), but believe me,
+we had to implement that in a page with only a huge spinner in it. We triggered
+the React router `action` as soon as the user entered the page using the
+`effect`). We came up with the following solution:
+
+- Enter a mutex and execute the following operation
+  - If we have the key in the DB, we do not proceed to create and just return
+the key
+  - If we don't have the key, call the API and store its key in the DB and
+return it
+
+
+The Mutex is the key here preventing multiple external API calls from
+happening. We can use Postgres'
+[`pg_advisory_xact_lock`](https://www.postgresql.org/docs/9.1/functions-admin.html)
+or [Redis RedLock](https://redis.io/docs/manual/patterns/distributed-locks/) to
+implement a distributed Mutex.
+
+### Overall Result
+
+The project is live at Shopify Marketplace with a few dozen happy customers -
+[apps.shopify.com/truefit]( https://apps.shopify.com/truefit) (This is the only
+place I brag about my workplace in this article). The project was an
+accelerated idea to prototype to production. While the acceleration provided us
+with a lot of ideas and opportunities, it also left a few blind spots only to
+be uncovered by the users using it. We have since maintained a log of the
+issues and a disaster management & recovery plan. After a few months, the
+project is in a stable landscape now. 
+
+## 7. Murphy's Law
+
+I got introduced to [Murphy's
+Law](https://en.wikipedia.org/wiki/Murphy%27s_law) by a colleague, of which one
+version states as:
+
+> Anything that can go wrong will go wrong, and at the worst possible time 
+
+This is especially true in Software Engineering and UI design where we make a
+lot of assumptions about the system that we are building and the users using
+it. Users' instinct might be vastly different from the Engineer's one - that's
+where the UI/UX team comes in to fill in the gap. When it comes to a backend
+system, we might get hit with an unexpected downtime that breaks our system and
+assumptions. Over time, I've learnt to handle such situations by:
+
+1. Not making too many assumptions about the system, but ensuring we do not
+over-engineer anything. *We can't live without assumptions about the world that
+we live in*
+2. Handling the errors reactively by patching the system, while ensuring the
+patch does not introduce additional assumptions or break the system in any way
+
+We have experienced lots of such situations reinforcing our disaster management
+strategies - who wants to be woken up from sleep just to execute one command to
+fix things? - just build CI/CD and add docs!
+
+## 8. Cooking a Chrome Extension with Bun and React
+
+[Bun](https://bun.sh/) was released this year with the promise of being
+performant and providing solutions to commonly used things out of the box. At
+the same time, we got a requirement to collect the data through an injected
+JavaScript from some websites. Ideally, the websites include our script which
+collects data (like analytics data, but not analytics data 😜) and sends it to
+our server. In development, we had to inject the script ourselves into the
+webpage – Enter Browser Extensions.
+
+[Browser
+Extensions](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions)
+is a standard that defines a set of APIs to allow programmatically enhance the
+behaviour of the browser using plugins. We ended up choosing Chrome Extensions,
+which provides a global `chrome` object to access these APIs inside the
+extension. An Extension is a regular JavaScript code running inside the browser
+in an isolated context along with HTML and CSS for the Sidebar and Popup UIs.
+We wanted to build the extension with TypeScript, though - fortunately, there
+was [`@types/chrome`](https://www.npmjs.com/package/@types/chrome) package for
+us. Apart from the code, we need to define a
+[`manifest.json`](https://developer.chrome.com/docs/extensions/reference/manifest)
+which contains meta-information about the extension, along with the API
+versions it would like to use - Remember Chrome deprecating Manifest V2? there
+was a
+[`webRequest`](https://developer.chrome.com/docs/extensions/reference/api/webRequest)
+API which allowed extensions to intercept and modify network requests and
+responses. In Manifest V3, it is not there anymore and is replaced by
+`declarativeNetRequest`, where the rules are _declarative_ and do not allow an
+extension to peek into the request (privacy-preserving....Google....)
+
+###
+[`scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting)
+API
+
+We used `chrome.scripting.executeScript` to execute our code and get the result
+back in the Popup surface. However, soon, it was painful for us to write
+`document.getElementById("result")!.innerHTML = JSON.stringify(result)` where
+we used to write it declaratively in React. Fortunately, Bun eliminates the
+need for build tools and bundlers -  we can use  `tsx` files to write React
+code and compile them into JavaScript using `bun build` (We need to install
+`react` and `react-dom` though). Then, all the things were easy - we ran
+`executeScript` inside an `useEffect`, and stored the result in a state, which
+is used to render the result. Thanks to React, we can bring fancy JSON Viewers
+into the mix.
+
+###
+[`declarativeNetRequest`](https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest)
+API
+
+Moving on, we started injecting our script through our existing integration
+code patched by a proxy server. This needed us to redirect the request that was
+hitting prod servers to our dev machine. We started patching `/etc/host` to
+point the prod domain to the local one, and soon ran into HTTPS issues. Even
+with the self-signed certificate, Chrome refused to allow the connection to
+localhost 😅. A quick Google search yielded us
+[Requestly](https://requestly.io/), which solved the problem of redirection for
+us. We went a step further and integrated the redirection into our extension
+using the `declarativeNetRequest` API. We can write the request editing config
+using a JSON specifying the request matching criteria and a handler action. We
+used RegEx filters and Substitutions to achieve our end goal. We further added
+functionality in the extension UI to turn the rules on and off with the help of
+a toggle (Read: Radio button - we had 3 options - local, staging, none).
+
+### Bun Impressions
+
+Bun made things smooth for us, although we ended up using `esbuild` in a `js`
+file for the build and dev server steps. A major impression for us was the
+package installation time, it is rocket speed when compared to `npm` and even
+`pnpm`. Apart from that, their standard APIs are also thoughtfully built, and,
+compatibility with `node` is one of their major selling points (which `deno`
+did a lot later to catch up with). We even wrote CI steps using bun, reducing
+the installation time and speeding up the CI. **Fast feedback times are always
+important for a developer and thanks Bun for helping achieve that!**
+
+## 9. Using the Web Standards
+
+Developing in JavaScript touches both the backend and frontend worlds. While
+the backend has many runtimes, frontend's web runtime is now fairly
+standardized. During the course of this year, I used several Web Standard APIs
+to achieve few tasks at work. Here is a summary of them:
+
+###
+[`navigator.sendBeacon()`](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/sendBeacon)
+
+The [`fetch`](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API) API
+is fairly standard nowadays, allowing us to easily communicate with the servers
+without the hassle of managing the `XMLHTTPRequest` state. However, `fetch`
+calls are cancelled when the user navigates away from the page. While this is
+not a problem for normal API calls needed to populate the UI, it presents a
+problem for tracking events where we could potentially lose some of them.
+
+`navigator.sendBeacon()` provides an alternative to `POST` API calls sending
+the tracking events. The body can be plain text or a `Blob` with a content
+type. Browser ensures that the navigator calls are finished even after the user
+leaves the page, making it perfect for sending analytics events. It is logged
+as a `ping` event in the Browser's Network Tab and can be inspected as any
+other request.
+
+I was sending `application/json` created in a `Blob` through `sendBeacon` and
+observed it was making a preflight `OPTIONS` call to get the CORS headers.
+[Switching body type to `text/plain` would not do
+so](https://stackoverflow.com/a/44142982). CORS became a real issue for me
+during local development with proxies set by `declarativeNetRequest`, so we
+ended up using plain text and a server-side parser
+`z.string().transform(bodyString =>
+JSON.parse(bodyString)).transform(bodyObject => schema.parse(bodyObject))`. A
+nice thing about `fastify` is that any exception thrown at any point in this
+chain would be returned as a `400 BadRequest`.
+
+> ✨ While I was writing this article, I learnt that `fetch` with [`keepalive:
+true`](https://developer.mozilla.org/en-US/docs/Web/API/fetch#keepalive) would
+achieve the same effect as `navigator.sendBeacon()`! It would allow us to
+specify `mode: "no-cors"` to send the data and not to be aware of the response,
+which is fine in some cases.
+
+###
+[`MutationObserver`](https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver)
+
+One of our tasks during the data collection script is to observe changes to the
+DOM, and `MutationObserver` is the go-to solution. With Mutation Observer, we
+can observe a DOM node and get updates via a callback whenever it changes. We
+can observe the changes in attributes, text data and children; optionally for
+the subtree as well.
+
+We started observing a few nodes with predefined selectors for the changes on
+them. However, we lost the event when the node itself was removed from the DOM.
+Thus, we decided to observe the `document` and execute our handler if a mutated
+node
+[`matches()`](https://developer.mozilla.org/en-US/docs/Web/API/Element/matches)
+our selector. We carefully decide whether to execute the callback or not
+through a series of short-circuit conditions to exit as early as possible.
+
+### [`Vary`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Vary)
+header and Caches
+
+When I was writing a proxy to patch the existing script to add our injection on
+the fly, I got access to a `Readable` stream from the proxy which I can read,
+patch and send back to the client. However, the requests made from the browser
+returned gibberish on the stream, leaving me puzzled. For a moment, I wondered
+if I was reading a binary HTTP response. We hit a lightbulb moment when we made
+the same request from `curl` and we got a plaintext stream! Turns out the
+server was returning different responses based on the `Accept-Encoding` header,
+which we removed in the proxy to always get plaintext responses back.
+
+This behaviour where the response can change based on a request header can
+cause caching issues if not configured correctly. Say a client can only accept
+plaintext and we return them the gzip which they can't process. This situation
+is avoided by using the `Vary` header on the response which caches respect
+(both CDN and Browser), which can be set with a list of the request headers
+based on which response varies. In our example, Cache can store different
+entities for plaintext and gzip response if `Vary: Accept-Encoding`.
+
+###
+[`Referer`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referer)
+based policies
+
+When we want to customize the script by the website it loaded from, we can
+follow a few strategies:
+
+- Generate a query parameter unique for each website and ask them to include it
+in the `script src`. However, this does not prevent another party from using
+the same query parameter if they know its value :sweat_smile:
+- Derive the information about where the script was loaded from the request
+itself - The `Referer` header comes into play here
+
+While we can inspect `Referer` header from the request and customize the
+response based on it, some user agents can skip sending this header due to
+privacy concerns. We ended up using hybrid of both the approaches to achieve
+required customization.
+
+### Writing some CSPs
+
+Hosting a website/application in public can come up with its own security
+challenges. What prevents anyone from embedding your website in a full-screen
+`iframe`, hosting it in a similar domain as yours, and having overlays to steal
+credentials? The answer is CSPs (Content Security Policies), which we can set
+in the `Content-Security-Policy` HTTP response header.
+
+For the case that I mentioned above, setting `frame-ancestors 'none'` does the
+job, but CSP headers can [achieve much more than
+that](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP), for example, it
+can restrict where the images, scripts and iframes in the website can come
+from. Choosing an ideal CSP depends on a particular setup, and is crucial.
+
+## 10. Advanced Data Structures
+
+Solving a problem at work and plugging in a solution from your Data Structures
+coursework is one of the most satisfying moments. We had a lot of requests
+containing the same data but wanted to process them only once. While the Set is
+a perfect solution for this problem where we process a request if we don't see
+it in the Set yet, they can be prohibitive in terms of memory at our scale.
+What if we can trade some accuracy off for way less memory?
+
+Enter [Bloom Filters](https://en.wikipedia.org/wiki/Bloom_filter) - they are a
+probabilistic set data structure, which hash the incoming element into a
+bitset. This means the elements can't be retrieved once we put them back into a
+Bloom Filter - an ideal solution for PII such as IP address. We can ask the
+Bloom Filter the question of whether we have seen a particular element or not,
+and its response has the following characteristics:
+
+- When it says **no**, we can be **100% sure** that we have not seen the
+element yet
+- When it says **yes**, it can be **wrong with a probability `p`**, which can
+be pre-configured
+
+It made sense for our use-case to lose a few elements at the cost of seeing
+them the next day, as we rotate bloom filters every day. We used [Redis
+implementation of Bloom
+Filters](https://redis.io/docs/data-types/probabilistic/bloom-filter/), which
+provides handy commands to interact with it. To store 100M elements, we only
+consume around 200MB with an error rate of 0.0001, which is perfectly fine for
+us.
+
+## 11. Year of AI - Following the Hype?
+
+Hi ChatGPT, you changed a lot of behaviours when it comes to information
+retrieval from the internet. While I was initially sceptical to adapt ChatGPT
+at work, GPT-4 Turbo is doing absolute wonders with added capabilities of
+browsing and code execution. In my experience, ChatGPT can automate trivial and
+boring tasks - I asked ChatGPT to browse `declarativeNetRequest` docs and come
+up with the JSON rules satisfying our use-case, although I had to tweak a
+little bit later. **I follow a rule where I never submit any PII to the ChatGPT
+- not even the name of my workplace.**
+
+### Choosing the Right tool for the Right Problem
+
+We also had a few interesting problems to solve with the AI, one of them was
+identifying variant size options from an apparel website. We started with
+Question Answer models by feeding them the HTML content of the website and
+asking them questions about size options - they were slow and inaccurate, and
+might've needed fine-tuning - we did not pursue that way further. ChatGPT and
+other LLMs were good at this, but sometimes hallucinated and were slow and
+costly - it was like *using an axe to kill a fly*. We turned out to simple
+embedding models as our last resort.
+
+### Data Matters
+
+Turned out we had a huge dataset of such tokens at our behest, albeit not
+clean. We ran our tokenizer and normalizer which removed special characters,
+converted everything to lowercase and split the words on this data. We also
+deduplicated these tokens ending up with several thousands of them. By seeing
+the dataset now, a few tokens did not make any sense based on our domain
+knowledge, which originated from garbage data. We ended up joining a meeting,
+going through these tokens and manually deleting the tokens which did not make
+sense, sometimes double-checking to understand where they originated from. At
+the end of this 1-hour-ish exercise, we had gold clean data! 
+
+### FastText - So Fast, So Huge!
+
+[FastText](https://fasttext.cc/) is an embedding model by Meta's FAIR Lab, and
+lives true to its name. It generated word embeddings for our entire dataset
+within a matter of seconds on the CPU. We initially trained FastText on our
+dataset and observed a lot of embeddings having 0 norm or 1 norm - it was a
+problem with our dataset where the tokens did not occur frequently as we
+deduplicated it during the generation phase. We also observed that their
+pre-trained models had a good understanding of our domain data, which we
+verified further by taking the embeddings and visualizing them in the
+[embedding projector](https://projector.tensorflow.org/). We were happy to see
+related tokens forming clusters of all shapes and sizes - a dream of a data
+scientist. At that point, we decided that the pre-trained model was good for
+our use case. The only sad thing was that the pre-trained model weighed around
+6GB and we have yet to figure out how to fit it inside a docker container and
+make it scale.
+
+### VectorDB and Inference Pipeline
+
+Now that we have decided on the model, we took the embeddings of our dataset
+and stored it in an in-memory vector DB using
+[`pynndescent`](https://github.com/lmcinnes/pynndescent) to do an approximate
+nearest neighbour search (no fancy VectorDB yet, sorry folks!). Then, for every
+input token, we pass it through the model, take the embedding and check if we
+have a nearest neighbour to it in our dataset within a predefined distance. If
+we find that neighbour, we accept that the token is valid, otherwise reject it.
+
+
+We hosted a [`flask`](https://flask.palletsprojects.com/en/3.0.x/) server to
+execute this logic and made our JS call the endpoints defined in the server.
+The JS filters the HTML by some common-sense assumptions about where the size
+variants are located in a website. This drastically reduces the number of
+tokens that we need to process. We empirically found that this approach gets
+the result that we want most of the time, but we have yet to come up with
+benchmark methods and the numbers - a task for the coming year!
+
+### LLMs are not the Silver Bullet
+
+An important learning from this model-building exercise was that LLMs can not
+solve all the problems, we can be better off with small, domain-specific models
+that are trained on our data. LLMs are costly to execute and can be very slow,
+but they also hallucinate - which can be a huge problem depending on the use
+case.
+
+But I'm also excited about RAG (Retrieval Augmented Generation) in the form of
+[Function Calling in OpenAI
+API](https://platform.openai.com/docs/guides/function-calling), followed by
+Gemini. We can hook up the right _tools_ to the LLMs to do specialized tasks
+and present their result in the form of natural language - this presents huge
+opportunities for interfacing them with the real-world, though some caution is
+always helpful.
+
+## 12. Ops Mode
+
+Being a FullStack Engineer means I've to touch the Infrastructure handling as
+well to get things going. We use GCP at our workplace and we have a bittersweet
+experience with it as everyone has with other cloud providers – no cloud
+provider is perfect. Following are some of my experience and thoughts on a few
+areas of GCP, their k8s offering GKE and general Infra provisioning.
+
+### Where are the modules, MemoryStore?
+
+MemoryStore is GCP's Redis offering, with promised autoscaling and SLAs. Who
+wants to manage things when there is a managed solution? We use MemoryStore for
+most of our Redis instances. Unfortunately, MemoryStore [does not support Redis
+Modules](https://cloud.google.com/memorystore/docs/redis/supported-versions#redis_version_70)
+and we can't live without our Bloom filter solution. While we can use a library
+that implements Bloom filters on top of the Redis bitset, their module looked
+lucrative to us and we ended up deploying [a helm
+chart](https://github.com/redis-stack/helm-redis-stack) on our GKE cluster to
+move ahead with the MVP. We have to figure out monitoring and scaling parts. I
+was impressed by the `PersistentVolumeClaim` handled by GKE seamlessly.
+
+### BigQuery - *Big Query*
+
+[BigQuery](https://cloud.google.com/bigquery) is GCP's Data Warehouse solution
+where the storage and computing are horizontally scaled across their clusters.
+While horizontal scaling offers faster query computation times, it can cost
+money if the queries are careless about the data they are accessing. We limit
+the compute scaling by using a predefined number of _slots_, which helps to
+keep the costs predictable.
+
+The only query interface to the BigQuery is SQL Query in Google SQL syntax.
+While SQL is declarative, I observed queries tend to grow big especially if we
+have to do data deduplication and joins. The query lives true to its name -
+*Big Query*.
+
+One of the nice features of BigQuery is that we can route the application logs
+to a dataset with minimal configuration with the help of Log Sink. The Log Sink
+creates its own dataset and tables with the schema to match the log schema and
+takes care of synchronizing the tables with the logs. We use this in all places
+- just log to `stdout` using a structured logger such as
+[`pino`](https://github.com/pinojs/pino), and rest assured that this data ends
+in BigQuery. I would imagine using [`fluent-bit`](https://fluentbit.io/) and
+its transport to achieve a similar solution for more customizability.
+
+Often, we need to process this log data, aggregate it and write it to a
+destination table. While Scheduled Queries can help us achieve this
+functionality with a minimum delay of 15 minutes, they do not come up with a
+retry mechanism. We observed scheduled queries fail due to a concurrent
+transaction modifying the same table. This is a huge problem for us and we are
+planning to move to Jenkins for more control on when queries are executed and
+retry mechanisms. Google, do something for it!
+
+### Ingress Provision Time
+
+When shipping a product to provision, making it available to the end-users is
+the most exciting thing. When you have all the available things deployed and
+the endpoint takes forever to be up, it adds to the frustration. Add more time,
+we started to worry if any of the configurations had gone wrong. Add more time,
+everything is up and running. I've observed some Ingress provisions taking up
+to 30 mins. What?! - Shall we contain the pressure to make a big announcement?!
+
+I understand a lot of things happen when provisioning an Ingress. A VM has to
+boot up and configure itself, and all the routers need to be configured across
+the request chain etc., But with my previous experience hosting ALBs in AWS
+through EKS Ingress Controller, GCP's one is less delightful. Can Google do
+anything to address it and provide more real-time updates?
+
+### HCL, you are too restrictive!
+
+We use [Terraform](https://www.terraform.io/) to provision and manage our
+Infrastructure. While HCL (HashiCorp Configuration Language) is expressive
+enough, it is not expressive as a programming language. It is okay for a
+Configuration Language to be more restrictive than a programming language, but
+the requirements can be anything. Can you think of filtering JSON keys by
+value? I need to go for esoteric-looking comprehensions in HCL, which can be
+very much expressed fluently in a programming language such as TypeScript.
+While HCL functions cater to most of the things, they are limited when compared
+to a rich ecosystem of libraries such as npm.
+
+This is a difference between philosophies of course - what a Configuration
+Language is supposed to be, whether it should be Turning-Complete or not etc.
+Personally I tend towards [Pulumi](https://www.pulumi.com/), due to following
+reasons:
+
+- Enables to **write a clear and concise code** following the language's best
+practices
+- Enables to **adapt the language ecosystem** of the language to do hard
+computation - such as diving the IP into subnetworks and calculating the masks
+- Enables to adapt the standards of the language w.r.t **modules and
+code-reusability**. I can think of an infra monorepo with `pnpm`
+- Enables to **provision** a set of resources (stack) **dynamically based on an
+API call!** This is a real killer if your use case demands this functionality
+
+All in all, it is important to understand the chain events to lead to the
+current state in a workplace, and adapt to it. Of course, HCL is not bad and is
+loved by many people!
+
+### Hi FluxCD - Let's do GitOps :rocket:
+
+We had a custom-script-based deployment system at our workspace, which
+traditionally deployed jars to VMs and managed the process lifecycle. We
+naturally extended the scripts to support k8s deployment in the same style as
+our legacy deployments, but, found them too much restrictive as k8s can
+naturally handle lifecycle better than us. With that, the search for a
+k8s-native deployment solution began.
+
+We started with [FluxCD](https://fluxcd.io/) and
+[ArgoCD](https://argoproj.github.io/cd/), both of which are in CNCF and are
+great. Since we preferred the CLI style of deployment and the state more
+tightly tied to a git repository, we chose FluxCD. We now have a flux
+**configuration repository** managed by Terraform and a **deployment
+repository** containing configs and [`kustomization`](https://kustomize.io/)
+overlays for all our applications across the environments. The `CODEOWNERS`
+file ensures that no one is privileged to deploy to prod without code approvals
+while giving enough freedom to deploy in lower environments. 
+
+We now have to create a branch, do a commit, merge and forget way of deploying
+our software with Flux taking care of everything else. We had a Flux issue one
+time - it was not able to pull in the deployment repo changes, which was easily
+fixed. We plan to smoothen the process more by providing CI hooks to automate
+deployments (We use GitLab CI) and `flux diff` views of MRs which can ensure
+reviews that the MR is not doing unintended.
+
+## Concluding Remarks
+
+This was a summary of what I did in work this year. This is not exclusive and
+omits lots of small details — our embrace of the functional programming world
+in JS, handling fine-grained reactivity using signals in React, going through
+thoughtful architecture designs and discussions etc. I want to stress that none
+of this is possible without the great team, management and product - and, I
+thank them all. Connect with me on
+[LinkedIn](https://linkedin.com/in/vinayakakv) to understand more about the
+work we do, and how we help people (This was brag-ish, not completely though!).
+
+This is my first time writing a summary of the year. This writing process
+helped me to reflect on this year and celebrate the learnings and achievements
+- I think this is important to keep you motivated to keep on doing great things
+year-long. 

@@ -1,4 +1,3 @@
-import { gql } from '@apollo/client'
 import type {
   InferGetStaticPropsType,
   GetStaticPropsContext,
@@ -6,21 +5,22 @@ import type {
   NextPage,
 } from 'next'
 import { Section } from '@components/Section'
-import client from '@helpers/graphql'
-import { Category } from '@schema/category'
 import { BlogGrid } from '@components/BlogGrid'
+import { getMdxFiles } from '@helpers/mdx'
 
 const CategoryDetailsPage: NextPage<
   InferGetStaticPropsType<typeof getStaticProps>
-> = ({ category }) => {
+> = ({ category, posts }) => {
   return (
     <>
       <Section
         big
         name={category.title}
-        description={`${category.posts.length} article(s)`}
+        description={`${posts.length} ${
+          posts.length > 1 ? 'articles' : 'article'
+        }`}
       >
-        <BlogGrid posts={category.posts} />
+        <BlogGrid posts={posts} />
       </Section>
     </>
   )
@@ -31,47 +31,48 @@ export default CategoryDetailsPage
 export const getStaticProps = async ({
   params,
 }: GetStaticPropsContext<{ slug: string }>) => {
-  const { slug } = params!
-  const { data } = await client.query<{ category: Category }>({
-    query: gql`
-      query getCategory($slug: String) {
-        category(where: { slug: $slug }) {
-          slug
-          title
-          posts {
-            slug
-            title
-            description
-            date
-            categories {
-              slug
-              title
-            }
-          }
-        }
-      }
-    `,
-    variables: {
-      slug,
-    },
-  })
+  const slug = params?.slug
+  if (!slug) {
+    return { notFound: true }
+  }
+
+  const allPosts = await getMdxFiles('posts')
+
+  const postsInCurrentCategory = allPosts.filter((post) =>
+    post.categories.some((category) => category.slug === slug)
+  )
+
+  if (postsInCurrentCategory.length === 0) {
+    return { notFound: true }
+  }
+
+  const currentCategory = postsInCurrentCategory[0]!.categories.find(
+    (cat) => cat.slug === slug
+  )!
+
   return {
-    props: { category: data.category },
+    props: {
+      category: currentCategory,
+      posts: postsInCurrentCategory,
+    },
   }
 }
 
 export const getStaticPaths: GetStaticPaths = async () => {
-  const { data } = await client.query<{ categories: Category[] }>({
-    query: gql`
-      query {
-        categories {
-          slug
-        }
-      }
-    `,
-  })
+  const posts = await getMdxFiles('posts')
+
+  const categorySlugs = [
+    ...new Set(
+      posts.flatMap((post) => post.categories.map((category) => category.slug))
+    ),
+  ]
+
+  const paths = categorySlugs.map((slug) => ({
+    params: { slug },
+  }))
+
   return {
-    paths: data.categories.map(({ slug }) => ({ params: { slug } })),
+    paths,
     fallback: false,
   }
 }

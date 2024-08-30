@@ -1,0 +1,435 @@
+---
+slug: morpheous
+title: "Project Morpheous"
+description: "How I built a fluent interface to transform spreadsheet data into JSON that can be imported via the APIs."
+date: "2022-05-12"
+tldr: |
+  - I built a data onboarding project named Morpheus to transform spreadsheet
+  data into a pre-defined format and uploads it to the API
+  - The project was split into two parts -- importer and transformer, accompanied
+  by a validator in between
+  - The importer would take a JSON file as the input, resolves the dependencies
+  between models, and call` POST` APIs to upload the data
+  - The transformer provides a
+  [_fluent_](https://en.wikipedia.org/wiki/Fluent_interface) interface to convert
+  the spreadsheets to the JSON format. Apart from the transformation, it also
+  supports filtering and grouping
+  - A validator powered by [`zod`](https://www.npmjs.com/package/zod) sits in
+  between the transformer and importer to ensure that the JSON files are in the
+  format needed by the API
+  - I gained a lot of insights from this project by talking to the
+  [FlatFile](https://flatfile.com/) and [OneSchema](https://www.oneschema.co/)
+  and building the project from scratch
+categories:
+  - slug: typescript
+    title: TypeScript
+  - slug: project
+    title: Projects
+---
+
+B2B companies are often faced with the problem of data migraion during customer
+onboarding. Whilst the company has a standard data models defined, they can not
+expect the customers to bring in the data with the same format. To handle this
+problem, one can use a one-time script to transform the data. However, this
+solution has a lot of drawbacks:
+
+- The script is not reusable, as it is built for a specific customer
+- With every new customer coming in, there is a lot of engineering work to do
+to create a new script for them
+- If the data format changes in between, the script may require a lot of changes
+- The script has to contain the data validatation logic and must be able to
+handle API failures. Otherwise, the program would crash somewhere in between,
+only to fix the problems and run it again
+
+In this article, we shall explore how I built a simple solution to handle these
+problems, with a scope to easily extend it.
+
+## Go-To Solutions
+
+Before building software to solve a problem ourselves, it is always good to
+look at the available options in the market, and check if we can trade money
+off for the engineering efforts. Since B2B customer onboarding is a frequent
+problem, there were already a few established SaaS companies providing a
+solution for it.
+
+- [FlatFile](https://flatfile.com/) is an excellent tool to onboard business
+customers. Their offerings range from providing an interactive UI to
+collaborate with the customers to custom NodeJS to transform the fields of the
+data.
+
+- [OneSchema](https://www.oneschema.co/) operates in the same business area as
+the FlatFile. Their solution offers an easy way to clean the data and export
+the rows with errors and share them with the customer. On another end, they
+also support transforming the data and handling ingestion and incremental
+updates.
+- [CSVBox](https://csvbox.io/): CSVBox is a simple solution to map the columns
+in the input spreadsheet to a defined schema. Although googling "Flatfile
+alternative" brings them to the top, they are not quite there yet!
+
+After exploring some other solutions such as [Dromo](https://www.dromo.io/), I
+decided to go with a custom solution.
+
+## The Solution
+
+The solution was named _Morpheus_ after a ["Matrix"
+character](https://en.wikipedia.org/wiki/Morpheus_(The_Matrix)) and the [Greek
+god of dreams](https://en.wikipedia.org/wiki/Morpheus). The interesting part of
+the word was "morph" -- to transform, which the project would do the
+spreadsheet input data.
+
+The project consisted of two parts -- one to import the JSON data that is
+already in the format required by the POST APIs, and another to convert the
+spreadsheet data coming into the standard JSON format. A validator was placed
+in between these steps to ensure that data was in the format needed by API.
+
+### Importer
+
+The importer tool is responsible for uploading the data present in the JSON
+files to the APIs. The challenge comes here with the references between the
+entities. To give a concrete example, let's assume the following scenario:
+
+- We have `Student` and `Course` resources, where multiple `Student`s can take
+a single `Course`
+- The backend generates UUIDs for the `Student` and `Course` resources and uses
+them as the primary keys
+- The endpoint `POST /api/course`, takes a JSON body field `students`, an array
+of UUIDs corresponding to `Student` resources.
+- The endpoint `GET /api/student` has a query parameter `search`, which takes a
+string of `[field1: value1][field2: value2]` format, returning the matching
+resources.
+
+We do not know the UUID of the `Student` resource until it is present in the
+backend; thus, it JSON input file has to contain some other _unique_ field of
+the student. Then, the code must call the `GET` endpoint, and return the UUID
+of the resource. 
+
+To handle such scenarios, I created a `Model` class in the code, responsible
+for keeping track of dependencies and resolving them. The class looked like,
+
+```typescript
+type Reference = {
+  model: Model
+  field: string
+  oneToMany: boolean
+}
+
+type SearchParams = Record<string, string>
+
+class Model {
+  constructor(
+    public name: string,
+    private args: {
+      getEndpoint: string
+      postEndpoint: string
+      references: Reference[]
+    }
+  ) {
+    // initialize all properties
+  }
+
+  async getOne(params: SearchParams): Promise<string> {
+    // return the ID of the object matching the search criteria
+  }
+
+  async createOne(obj: {}): Promise<string> {
+    // create one object and returns its ID
+  }
+
+  async resolveDependencies(obj: {}): Promise<{}> {
+    // takes in a value from JSON, returns the object with resolved dependencies
+    // the returned object can be used in `createOne()`
+  }
+}
+
+```
+
+The `getOne()` method converts `SearchParams` into a string in the format of
+the `search` parameter and calls the `GET` API, handling the case of multiple
+objects and no objects returned.
+
+Similarly, the `createOne()` method calls the `POST` API to persist the object
+and returns its ID once it is created.
+
+The method of interest is `resolveDependencies()` here. It walks through all
+`references`, reading in the value from the `field`, and replacing it with IDs
+from the `getOne()` method. For this method to work, the resources have to be
+imported in the order of their resolved dependency (Here, `Course` must be
+imported after importing `Student`). I used
+[`jsonpath`](https://www.npmjs.com/package/jsonpath) to give extra flexibility
+while accessing the `field`. Using the `Model` class, we can define `Student`
+and `Course` models as:
+
+```typescript
+const student = new Model("Student", {
+  getEndpoint: "https://exmaple.com/api/student",
+  postEndpoint: "https://example.com/api/student",
+  references: [],
+})
+
+const course = new Model("Course", {
+  getEndpoint: "https://example.com/api/course",
+  postEndpoint: "https://example.com/api/course",
+  references: [
+    {
+      model: student,
+      field: "$.students",
+      oneToMany: true,
+    },
+  ],
+})
+
+```
+
+Now, we can start importing the objects. Let's say we have the following data.
+
+```typescript
+const students = [
+  {
+    email: "alex@uni.edu",
+    name: "Alex Jones",
+  },
+  {
+    email: "bob@uni.edu",
+    name: "Bob Harris",
+  },
+  {
+    email: "chris@uni.edu",
+    name: "Chris Muller",
+  },
+]
+
+const courses = [
+  {
+    name: "Intro to CS",
+    id: "CS101",
+    students: [
+      {
+        email: "alex@uni.edu",
+      },
+      {
+        email: "bob@uni.edu",
+      },
+    ],
+  },
+  {
+    name: "Fundamentals of Programming",
+    id: "CS102",
+    students: [
+      {
+        email: "chris@uni.edu",
+      },
+    ],
+  },
+]
+
+```
+
+Creating the students is straightforward. We call `student.createOne()` for 
+all student objects.
+
+```typescript
+await Promise.all(
+  students.map(studentObject =>
+    student.createOne(studentObject)
+  )
+)
+```
+
+Before creating the courses, however, we need to resolve student IDs.
+
+```typescript
+const resolvedCourses = await Promise.all(
+  courses.map(courseObject =>
+    course.resolveDependencies(courseObject)
+  )
+)
+```
+
+The `resolvedCourses` looks like
+
+```typescript
+[
+  {
+    name: "Intro to CS",
+    id: "CS101",
+    students: ["uuid1", "uuid2"],
+  },
+  {
+    name: "Fundamentals of Programming",
+    id: "CS102",
+    students: ["uuid3"],
+  },
+]
+```
+
+Now, we can import the `resolvedCourses` as usual.
+
+```typescript
+await Promise.all(
+  resolvedCourses.map(courseObject =>
+    course.createOne(courseObject)
+  )
+)
+```
+
+> **Note**: The `Model` class takes only care of handling references, creating
+and getting objects. It is _still_ your responsibility to ensure that other
+fields are valid.
+
+### Transformer
+
+Once the importer tool was ready, it was time to build the Transformer tool.
+Assuming that we will have student names in `student.xlsx` with sheet `names`
+and an API to query their email based on the names (which is a bad example,
+please bear with me :sweat_smile:), the Transformer would look as follows:
+
+```typescript
+const studentTransformer = new Transformer()
+  .field("name", data => data["Student Name"])
+  .field("email", async data =>
+    fetch(`https://uni.edu/api/email?name=${data["name"]}`)
+      .then(response => response.json())
+      .then(res => res.name)
+  )
+  .input("student.xlsx", { sheet: "names" })
+  .output("student.json")
+
+await studentTransformer.transform()
+```
+
+The `field(name: string, action: FieldAction)` function is defining the JSON
+field name and action to compute the value at the field. It is possible to
+return objects and arrays from the action, thus making nested structures
+possible. The action handlers support both async and sync operations, having
+the following type:
+
+```typescript
+type DataRow = Record<string, string>
+
+type Output<T> = T | Promise<T>
+
+type FieldAction<T> = (dataRow: DataRow) => Output<T>
+
+```
+
+When working with real data, I came across the need of skipping some rows based
+on the condition. This resulted in the addition of the `filter(predicate:
+Predicate)` method into the fluent interface, with `Predicate` defined as:
+
+```typescript
+type Predicate = (dataRow: DataRow) => Output<boolean>
+```
+
+Continuing the example of `Student`s and `Course`s, let's assume `courses.xlsx`
+contains a big list of Course IDs and Course Names duplicated for every student
+taking the course. To generate `course.json`, we need a grouping, rather than a
+1-to-1 mapping. To do this, I created `groupBy(action: GroupByAction,
+aggregateFields: string[])`) function, with `GroupByAction` defined as:
+
+```typescript
+type GroupByAction = (dataRow: DataRow) => Output<string[]>
+```
+
+The `GroupByAction` would return a list of strings, ideally picking them from
+the `dataRow`. The transformer would then keep track of the returned strings as
+keys to group the results returned by `FieldAction` of fields in
+`aggregateFields` into an array. The fields not in `aggregateFields` are only
+computed once. With the `groupBy()` method in place, we can write the
+transformer for `Course`:
+
+```typescript
+const courseTransformer = new Transformer()
+  .groupBy(data => [data["Course ID"]], ["students"])
+  .field("name", data => data["Course Name"])
+  .field("id", data => data["Course ID"])
+  .field("students", async data => ({
+    email: await fetch(
+      `https://uni.edu/api/email?name=${data["name"]}`
+    )
+      .then(response => response.json())
+      .then(res => res.name),
+  }))
+  .input("courses.xlsx", { sheet: "course" })
+  .output("courses.json")
+
+await courseTransformer.transform()
+```
+
+In the above example, the `FieldAction` for `the "id"` field will be run only
+once for a course, and, the results from the `FieldAction` of the `"students"`
+would be aggregated as an array.
+
+### Validator
+
+Once the transformer outputs the JSON file, before importing it, it was
+necessary to check whether the objects follow the specification of the API,
+since the importer does only the job of resolving references. I chose
+[`zod`](https://github.com/colinhacks/zod), which I had come across GitHub
+trending, to define the schema and validate the JSON file. With `zod`, schema
+definition for our `Student` and `Course` would look like:
+
+```typescript
+import z from "zod"
+
+const student = z.object({
+  name: z.string(),
+  email: z.string().email(),
+})
+
+const course = z.object({
+  name: z.string(),
+  id: z.string().regex(/CS\d{3}/),
+  students: z.array(student.partial()).nonempty(),
+})
+```
+
+And we can do validation as:
+
+```typescript
+const result = student.safeParse(obj)
+```
+
+## The Interface
+
+The project _Morpheus_ had a CLI interface, built using
+[`commander`](https://www.npmjs.com/package/commander).
+
+For the Import tool, I defined all models in the backend in `models.ts` and
+exported all of them in a `Map<string, Model>`. The same was repeated with
+transformers, with `transformer.ts` exporting a `Map<string, Transformer>`. A
+separate `transformer.ts` is required for a separate customer. The maps
+contained the name of the model as the key. This helped to choose a model name
+in the CLI, and get the corresponding transformer or importer.
+
+During processing, if some error happens, the program would not halt; instead,
+the program writes the error-causing object and error message to an error file
+(specified in the Command Line) and continue working.
+
+Once the process has finished, one can inspect the error file, fix the errors,
+and get the objects back using the `clean` subcommand. These objects can be
+further fed into the tool, or, sent back to the customer for clarifications.
+
+## Impacts
+
+This project had a huge impact on customer onboarding. Specifically, it
+
+- reduced the amount of work required to onboard a customer, from creating a
+project to writing several functions
+- decreased the customer onboarding time from weeks to days
+- increased the visibility into the errors during processing and import
+
+Apart from customer onboarding, I used the Import tool heavily in combination
+with [Mockaroo](https://www.mockaroo.com/) to create dummy data for product
+demos to potential customers. Thanks to the Import tool, I created around 10
+such environments, incrementally gathering the feedback from the business
+:smile:.
+
+## Learnings
+
+Since I handled this project from initialization to the first milestone, I
+learned how to run a project, what features to prioritize based on the business
+requirements, and communicate them with all the stakeholders. Apart from
+coding, I was involved with documenting the project and gathering feedback from
+other developers regarding code quality and interface usability, from which I
+was able to understand the project from different perspectives.
+

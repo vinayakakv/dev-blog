@@ -1,0 +1,364 @@
+---
+slug: implicit-arguments
+title: "The Implicit Arguments"
+description: "Scala's functions are different since they accept two set of arguments as opposed to one in many programming languages. What does it serve? Let's look into it..."
+date: "2022-06-25"
+tldr: |
+  - I explore Scala's implicit arguments in this article by converting a function
+  to accept implicit arguments
+  - We look into how implicit arguments get resolved, conflicts and priorities
+  during the resolution
+  - We also look into _implicit conversions_, where functions can be implicit
+  - To facilitate debugging, we look into IntelliJ's option to view implicit
+  parameters explicitly
+  - In the end, we explore the possibilities of implicit arguments giving the
+  flexibility to implement some patterns
+categories: []
+---
+
+While exploring Scala, one of the features that caught my eyes was that
+functions can accept two sets of arguments. Typically, we write `function
+name(argumentList)` in most languages. Scala goes one step ahead and allows
+`function name(argumentList)(implicitArgumentList)`. In this article, we shall
+explore implicit arguments from a Scala-newbie perspective. meaning that we
+won't dig deep into architectural patterns and theoretical implications,
+rather, we explore them from a syntax and syntax-sugar perspective.
+
+## A First Dive
+
+Let's write a function to concatenate a list of strings with a separator. As a
+good first step, we write this as a function accepting two arguments and a
+return value
+
+```scala
+def concatStrings(strings: Seq[String], separator: String): String = {
+  strings.foldRight("") {_ + separator + _}
+}
+```
+
+Several things are going on here, let's break them down one by one:
+
+- Scala uses `[]` to denote generics; thus, `Seq[String]` is a `Seq` of
+`String`s
+
+- The return value is the value of the last line of the function; writing
+`return` is optional
+
+- `foldRight` is similar to `reduce` function in JS, its first argument is the
+initial value `""`
+
+- `foldRight` takes a reducer function as a
+[_curried_](https://docs.scala-lang.org/tour/multiple-parameter-lists.html)
+argument
+
+- The reducer function is of type `(String, B) => B`, The type `B` comes from
+the initial value, which is also `String` now
+
+- The funny `_`s are a shorthand to access function arguments; the First `_` is
+of type `String`, and the second `_` is of type `B` (= `String`). You can't
+write a third `_`,  that's an error :sweat_smile:
+
+- `{...}` is a shorthand for the funciton body, otherwise you would have
+written `strings.foldRight("")((a, b) => a + separator + b)`; Notice two set of
+arguments `foldRight()()`, don't worry, we will address it right away :smile:
+
+Then, we invoke this function and get a return value from anywhere.
+
+```scala
+def main(args: Array[String]): Unit = {
+  val strings = Seq("Hello", "World")
+  val result = concatStrings(strings, "+")
+  assert(result == "Hello+World+") // The extra + is because of foldRight
+}
+```
+
+## Hello Implicit!
+
+Let's make our function `concatStrings` to accept an implicit `separator`
+argument. The function body looks similar to the previous case, excpet the
+argument list:
+
+```scala
+def concatStrings(strings: Seq[String])(implicit separator: String): String = {
+  strings.foldRight("")((a, b) => a + separator + b)
+}
+```
+
+The second set of arguments begins with the `implicit` keyword and marks them
+as _implicit_. The implicit arguments are inferred from the scope at
+compile-time and passed to the function as an argument. To make it clear, let's
+look at the invocation of our new `concatStrings` function.
+
+```scala
+def main(args: Array[String]): Unit = {
+  val strings = Seq("Hello", "World")
+  implicit val delimiter: String = "+"
+  val result = concatStrings(strings)
+  assert(result == "Hello+World+")
+}
+```
+
+Here, we are creating a constant named `delimiter` of type `String`, which is
+also declared as `implicit`. When the compiler encounters the call to
+`concatStrings`, it looks for values of type `String` in the scope, which is
+marked as `implicit`. In this case, it is the constant `delimiter`. Then, it is
+passed as an argument to the function.
+
+Let's play with implicit arguments by modifying the code.
+
+### Missing Implicit
+
+If the compiler can not find `implicit` values in the scope, it is an error.
+
+```scala
+def main(args: Array[String]): Unit = {
+  val strings = Seq("Hello", "World")
+  val result = concatStrings(strings)
+  assert(result == "Hello+World+")
+}
+```
+
+Here, the compiler complains with a readable, understandable error
+
+```
+could not find implicit value for parameter separator: String
+	val result = concatStrings(strings)
+```
+
+### Multiple Implicits
+
+If we have multiple `implicit` values of the same type, that is also an error.
+
+```scala
+def main(args: Array[String]): Unit = {
+  val strings = Seq("Hello", "World")
+  implicit val delimiter: String = "+"
+  implicit val anotherDelimiter: String = "+"
+  val result = concatStrings(strings)
+  assert(result == "Hello+World+")
+}
+```
+
+The error is
+
+```
+ambiguous implicit values:
+ both value anotherDelimiter of type String
+ and value delimiter of type String
+ match expected type String
+    val result = concatStrings(strings)
+```
+
+### Explicitly Implicit
+
+We can also explicitly pass the `implicit` argument, as we did in `foldRight()`
+
+```scala
+def main(args: Array[String]): Unit = {
+  val strings = Seq("Hello", "World")
+  val result = concatStrings(strings)("+") // Notice the second argument list
+  assert(result == "Hello+World+")
+}
+```
+
+### Implicit from Upper Scope
+
+Implicit values can be from upper scope as well:
+
+```scala
+object ImplicitHelper {
+  def concatStrings(): String = {
+    // Same as before
+  }
+}
+
+object Main {
+  implicit val delimiter: String = "+"
+  
+  def main(args: Array[String]): Unit = {
+    val strings = Seq("Hello", "World")
+    val result = ImplicitHelper.concatStrings(strings)
+    assert(result == "Hello+World+")
+  }
+}
+```
+
+Here, the `object ...` is a singleton object, which can define methods as well.
+Think of it as a `static` method. When we have implicit values present in
+multiple scopes, the closest one is picked first (as expected :grin:).
+
+```scala
+object ImplicitHelper {} // Same as before
+
+object Main {
+  implicit val delimiter: String = "+"
+
+  def main(args: Array[String]): Unit = {
+    val strings = Seq("Hello", "World")
+    implicit val delimiter: String = "_" // This one is picked
+    val result = ImplicitHelper.concatStrings(strings)
+    assert(result == "Hello_World_")
+  }
+}
+```
+
+Implicits can flow in from `import` as well, suppose we have an `object` named
+`Config` in the file `Config`
+
+```scala
+// Config.scala
+object Config {
+  implicit val delimiter: String = ","
+}
+```
+
+In our `Main.scala` (in which we write the `main` function),
+
+```scala
+// Main.scala
+import Config._
+
+object ImplicitHelper {} // Same as before
+
+object Main {
+  def main(args: Array[String]): Unit = {
+    val strings = Seq("Hello", "World")
+    val result = ImplicitHelper.concatStrings(strings)
+    assert(result == "Hello,World,")
+  }
+}
+```
+
+Since we imported every member of the object `Config`, the compiler can match
+the `delimiter` to the argument of `contactStrings`
+
+## Viewing Implicit Arguments
+
+Since the implicit arguments can be inferred directly from the code without
+analyzing all the imports in all scopes, debugging others' code can be hard.
+Fortunately, IntelliJ has an option to _explicitly_ show the `implicit`
+variables :tada:. Just enable it from `View -> Show Implicit Hints` (you might
+need Scala Plugin to do this). With this option enabled, the editor window
+looks like this,
+
+![IntelliJ Idea showing implicit
+argument](https://media.graphassets.com/GSdBIKACSz2g9SW9r5ai)
+
+Now you can follow the definition of the value as usual.
+
+## Implicit Conversions
+
+Since functions are the first-class citizens of Scala, they can be an
+`implicit` argument as well, here is a sample:
+
+```scala
+import scala.language.implicitConversions
+
+object ImplicitHelper {
+  def toInt[A](argument: A)(implicit function: (A) => Int): Int =
+function(argument)
+}
+
+object Main {
+  implicit def length(string: String): Int = string.length
+
+  def main(args: Array[String]): Unit = {
+    val string = "Hii"
+    val result = ImplicitHelper.toInt(string)
+    assert(result == 3)
+  }
+}
+```
+
+Here, the object method `Main.length` is the implicit parameter to the `toInt`
+function. Note that we also needed to import
+`scala.language.implicitConversions`. To quote the [Scala
+Docs](https://docs.scala-lang.org/tour/implicit-conversions.html), we need
+this,
+
+> Because implicit conversions can have pitfalls if used indiscriminately the
+compiler warns when compiling the implicit conversion definition.
+
+So, we are making it explicit that we are using implicit conversions :smile:
+(BTW, conversion = function).
+
+## Implicitly Implicit :sunglasses:
+
+We have already seen that we can bring in `implicit` values in the scope using
+`import`. If we can have multiple `implicit` values defined in the imported
+classes, we have some interesting effects.
+
+Let's take the earlier example of `concatStrings()`. We have a `DefaultConfig`
+object setting delimiter to `","`, and a `SpecialConfig` object setting it to
+`"+"`. Let's also have these files:
+
+1. `ImplicitHelper.scala` -- Defines `concatStrings` method
+2. `Main.scala` -- Invokes the `contactStrings` method
+3. `DefaultConfig.scala`, and
+4. `SpecialConfig.scala` -- as defined earlier
+
+Now, 
+
+```scala
+// DefaultConfig.scala
+object DefaultConfig {
+  implicit val delimiter: String = ","
+}
+```
+
+And,
+
+```scala
+// SpecialConfig.scala
+object SpecialConfig {
+  implicit val delimiter: String = "+"
+}
+```
+
+And,
+
+```scala
+// ImplicitHelper.scala
+object ImplicitHelper {} // As before
+```
+
+At last,
+
+```scala
+import ImplicitHelper._
+import DefaultConfig._
+
+object Main {
+  def main(args: Array[String]): Unit = {
+    val strings = Seq("Hello", "World")
+    val result = concatStrings(strings)
+    assert(result == "Hello,World,")
+  }
+}
+```
+
+Since we `import DefaultConfig._`, the delimiter is now `","`. We can quickly
+swap that for `SpecialConfig._` to have a different delimiter.
+
+```scala
+import ImplicitHelper._
+import SpecialConfig._
+
+object Main {
+  def main(args: Array[String]): Unit = {
+    val strings = Seq("Hello", "World")
+    val result = concatStrings(strings)
+    assert(result == "Hello+World+")
+  }
+}	
+```
+
+  And, the import order does not matter.
+
+## Concluding Thoughts
+
+The `implicit` arguments, especially through `import` provide a nice way to
+implement composability and dependency injection patterns. Thanks to the
+tooling, we still get the benefits of following arguments to their definitions.
+Sometimes, like in implicit conversions, we still need to be careful not to
+misuse them.

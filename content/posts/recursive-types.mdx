@@ -1,0 +1,458 @@
+---
+slug: recursive-types
+title: "Recursive Types"
+description: "An exploration of recursive logic in the type domain"
+date: "2023-09-16"
+tldr: |
+  - We explore the type programming and role of the recursion in it using a
+  practical problem
+  - The problem is to convert camel case keys of an object to snake case, and
+  retaining the type information doing so
+  - We first understand the solutions in an iterative manner and have a working
+  logic in the JS domain
+  - We then proceed to type the program, and while doing so, we understand that
+  we lose the type information during the conversion
+  - To preserve the type information, we implement type helpers using `keyof`
+  helper and recursion
+  - We conclude with exploring a related problem and understanding the pattern
+  matching capabilities of JS
+categories:
+  - slug: typescript
+    title: TypeScript
+---
+
+**Also Read:** [Recursive Types](/blog/recursive-types)
+
+TypeScript has a very solid type system that makes few things possible, which
+are not possible in other typed languages. To show the powers of TS type
+system, we will go through a practical problem in this post and sprinkle types
+to it to make it robust.
+
+## The Problem
+
+APIs and Databases normally use differnet styles of naming variables. While API
+fields are `camelCase` most of the times, in DB, we often name columns in
+`snake_case` often. 
+
+Snake case names in DB are reasonable, as SQL is case-insensitvive. A variable
+in camelcase, say, `jsonPayload` is converted to `jsonpayload` unless quoted.
+Quoting is often inconvinent and often missed when working in a SQL console
+directly.
+
+While ORMs can be configured to handle these conversions in majority of the
+cases, when we need to deal with db directly, we need to handle case
+conversion. The problem is to handle the conversion in a type-safe way. We will
+solidify our expectations soon.
+
+## The Beginnings 
+
+Let's start with a JS function to convert camel case strings to snake case, and
+iteratively add features later on. Converting a camel case string to snake case
+is easy -- we iterate through the characters of the word, if we find an
+uppercase letter, we emit an underscore (`_`) and the corresponding uppercase
+letter. Otherwise, we will just emit the current letter. Let's assume that word
+does not contain any special characters (it makes sense, as we can't use
+special characters while naming identifiers and DB columns).
+
+```javascript
+const isUpperCase = (letter) =>
+  letter === letter.toUpperCase()
+
+const toSnakeCase = (word) =>
+  word
+    .split("")
+    .map((letter) =>
+      isUpperCase(letter)
+        ? ["_", letter.toLowerCase()]
+        : [letter],
+    )
+    .flat()
+    .join("")
+
+const result1 = toSnakeCase("helloWorld") // "hello_world"
+const result2 = toSnakeCase("helloWorldTest") // "hello_world_test"
+```
+
+That was simple. Let's write a function to convert keys of an object to snake
+case while perserving the values as-is. Think of the input object as whatever
+we got in API body, and the output as what we want to write to DB.
+
+```javascript
+const convertKeysToSnakeCase = (object) =>
+  Object.fromEntries(
+    Object.entries(object).map(([key, value]) => [
+      toSnakeCase(key),
+      value,
+    ]),
+  )
+
+const result = convertKeysToSnakeCase({
+  apiVersion: "2023-02",
+  jsonPayload: "{hello: 2}",
+})
+// { api_version: "2023-02", json_payload: "{hello: 2}" }
+```
+
+## Sprinkle some Types!
+
+Let's start by tyoing adding types to `isUpperCase` and `toSnakeCase` functions
+
+```typescript
+const isUpperCase = (letter: string) =>
+  letter === letter.toUpperCase()
+
+const toSnakeCase = (word: string) =>
+  word
+    .split("")
+    .map((letter) =>
+      isUpperCase(letter)
+        ? ["_", letter.toLowerCase()]
+        : [letter],
+    )
+    .flat()
+    .join("")
+```
+
+Note that the return types are infered as `string` in both the cases, so we
+don't need to type it explicitly. Type Inference is a powerful tool in TS which
+eliminates the need of type annotation in most of the cases. I have explored a
+few examples in [my last post](/blog/type-inference), go check it out too!
+
+Now, it is time to type `convertKeysToSnakeCase` too. We can start as:
+
+```typescript
+const convertKeysToSnakeCase = (object: object) =>
+  Object.fromEntries(
+    Object.entries(object).map(([key, value]) => [
+      toSnakeCase(key),
+      value,
+    ]),
+  )
+```
+
+Typing `object` param as `object` (sorry for the repitition!) makes sense, and
+output type is infered as `{[k: string]: any}`, which is an object with only
+string keys.
+
+## Setting Expectations
+
+When we pass an object through `convertKeysToSnakeCase`, we lose all type
+information and we can index the result with any key. Ideally, the keys should
+get converted to snake case in type and all other key accesses should result in
+type error. Put it in code,
+
+```typescript
+const result = convertKeysToSnakeCase({
+  apiVersion: "2023-02",
+  jsonPayload: "{hello: 2}",
+})
+result.abc // Should result in a type error saying that the key does not exist
+result.json_payload // Should be no error, type should be string
+result.jsonPayload // Should result in a type error saying that the key does
+not exist
+```
+
+With the expectations set, we can move on to solving the problem. The solution
+is exactly as [Literal Magic](/blog/literal-magic), but presented in a
+differnet way.
+
+## Enter Generics
+
+We want a type `ConvertKeysToSnakeCase` which accpets a generic type `T` which
+should be an object, and convert its keys to snake case. Let's start by
+ensuring that the type only accepts objects as input:
+
+```typescript
+type ConvertKeysToSnakeCase<T extends object> = T
+
+type Result1 = ConvertKeysToSnakeCase<42> // Error
+type Result2 = ConvertKeysToSnakeCase<{
+  apiVersion: string
+  jsonPayload: string
+}> // Success
+```
+
+We added a generic _constraint_ that `T` should be a subtype of `object`, which
+is making sure that we don't accidentally pass in other types. Now, somehow, we
+have to loop over the keys of the object and transform them into snake case.
+Let's assume that there is a helper `ToSnakeCase` to convert individual keys to
+snake case.
+
+```typescript
+type ToSnakeCase<T extends string> = T // It does nothing now
+
+type ConvertKeysToSnakeCase<T extends object> = {
+  [Key in keyof T as ToSnakeCase<
+    Key & string
+  >]: T[Key]
+}
+```
+
+In `Key in keyof T as ToSnakeCase<Key & string>`, we are looping over all keys
+of T (got by `keyof T`), with indivual key as `Key`. Then, we are mapping it
+using `as` keyword to `ToSnakeCase<Key>`. We need `Key & string` in the
+argument as key of an object may be `string | number | symbol`, and we want
+eliminate `number | symbol` from the loop. 
+
+Now, let's move to the fun part of implementing `ToSnakeCase` itself!
+
+## Hi Recursion!
+
+To implement the type `ToSnakeCase<T extends string>`, we can't iterate over
+indivual items of `string` unfortunately as we did in `toSnakeCase` function
+(However, TS supports iterating over the keys of an object using `keyof` as we
+just saw). TS supports recursion with template literal types. Before going to
+TS, let's try solving the problem in JS recursively.
+
+```typescript
+const isUpperCase = (letter: string) =>
+  letter === letter.toUpperCase()
+
+const toSnakeCase = (word: string): string => {
+  const [first, ...rest] = word
+  if (!first) return "" // Base case
+  const restString = rest.join("")
+  return isUpperCase(first)
+    ? `_${first.toLowerCase()}${toSnakeCase(
+        restString,
+      )}`
+    : `${first}${toSnakeCase(restString)}`
+}
+
+const result1 = toSnakeCase("helloWorld") // "hello_world"
+```
+
+Let's break down how this is working:
+
+- We first split the `word` into `first` and `rest`, where `first` is `string |
+undefined`, and `rest` is `string[]`using [JS spread
+syntax](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Spread_syntax)
+- `first` will be `undefined` whenever `word=""`, so we return `""` in that
+case (by equality, we could have returned `first` too, but returning `""` gives
+clarity to the reader)
+- We convert `rest` to a string to prepare it to be called recursively
+- We check if `first` is an uppercase, similar to iterative case. If it is the
+case then emit an underscore and corresponding lowercase letter; otherwise, we
+don't change `first`
+- We append the result of the recursion to the first character using [JS
+Template
+Strings](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals).
+
+Note that:
+
+- We had to explicitly type the return value of `toSnakeCase` as `string` as TS
+infered `any` as the return type of recursive function
+- While this code works fine in native JS, in order for it to work in TS, we
+need to set `"downlevelIteration": true`
+
+Splitting an iterable to its _head_ and _body_ is a common operation in many
+functional programming languages, which enables an operation on _head_ and
+recursion on _body_. Fortunately, TS provides such functionality too, which we
+can leverage. Let's explore the functionality:
+
+```typescript
+type ListComponents<T> = T extends [
+  infer First,
+  ...infer Rest,
+]
+  ? { head: First; body: Rest }
+  : never
+
+type StringComponents<T> =
+  T extends `${infer First}${infer Rest}`
+    ? { head: First; body: Rest }
+    : never
+
+type ListResult1 = ListComponents<[]>
+// type ListResult1 = never
+type ListResult2 = ListComponents<[2]>
+/*
+type ListResult2 = {
+    head: 2;
+    body: [];
+}
+*/
+type ListResult3 = ListComponents<[1, 2, 3, 4]>
+/*
+type ListResult3 = {
+    head: 1;
+    body: [2, 3, 4];
+}
+*/
+type ListResult4 = ListComponents<"hello">
+// type ListResult4 = never
+
+type StringResult1 = StringComponents<"">
+// type StringResult1 = never
+type StringResult2 = StringComponents<"a">
+/*
+type StringResult2 = {
+    head: "a";
+    body: "";
+}
+*/
+type StringResult3 = StringComponents<"abc">
+/*
+type StringResult3 = {
+    head: "a";
+    body: "bc";
+}
+*/
+type StringResult4 = StringComponents<["a", "b"]>
+// type StringResult4 = never
+```
+
+TS is doing _Pattern Matching_ here - `[infer First, ...(infer Rest)]` and
+`${infer First}${infer Rest}` are the patterns. If the input _matches_ the
+pattern, the type variables `First` and `Rest` will get their respective
+values. In the first pattern, we needed `...` to explicitly tell that `Rest`
+should be an array. In second pattern, `Rest` is automatically resolved to rest
+of the characters.
+
+With the power of pattern matching in hand, we can easily convert the recursive
+version of `toSnakeCase` into a type.
+
+```typescript
+type ToSnakeCase<T extends string> =
+  T extends `${infer First}${infer Rest}`
+    ? First extends Uppercase<First>
+      ? `_${Lowercase<First>}${ToSnakeCase<Rest>}`
+      : `${First}${ToSnakeCase<Rest>}`
+    : T
+
+type Result1 = ToSnakeCase<"helloWorldTest"> // hello_world_test
+type Result2 = ToSnakeCase<"JsonPayload"> // _json_payload
+```
+
+This code looks very similar to the function code we have written, except that
+it is working in _Type Domain_, meaning it does not do any runtime action. Note
+that the `Uppercase` and `Lowercase` helpers are provided by TS. What if we
+could have same code across Type Domain and runtime?! - well, providing a
+runtime type system is not one of the TS goals.
+
+With `ToSnakeCase` in our hand, we can revisit `ConvertKeysToSnakeCase` now.
+
+```typescript
+type ConvertKeysToSnakeCase<T extends object> = {
+  [Key in keyof T as ToSnakeCase<
+    Key & string
+  >]: T[Key]
+}
+
+type ObjectResult = ConvertKeysToSnakeCase<{
+  apiVersion: string
+  jsonPayload: string
+}>
+/*
+{
+  api_version: string;
+  json_payload: string;
+}
+*/
+```
+
+And there we are! Now we can add types to `convertKeysToSnakeCase` function
+
+```typescript
+const convertKeysToSnakeCase = <T extends object>(
+  object: T,
+) =>
+  Object.fromEntries(
+    Object.entries(object).map(([key, value]) => [
+      toSnakeCase(key),
+      value,
+    ]),
+  ) as ConvertKeysToSnakeCase<T>
+```
+
+With that,
+
+```typescript
+const result = convertKeysToSnakeCase({
+  apiVersion: "2023-02",
+  jsonPayload: "{hello: 2}",
+})
+result.abc // Error: Property 'abc' does not exist...
+result.json_payload // Works
+result.jsonPayload // Error: Property 'jsonPayload' does not exist...
+```
+
+And we have successfully achieved the expectations! Note that few edge cases
+exist in our implementation, for a comprehensive treatment on this usecase,
+please look into [my earlier post](/blog/literal-magic).
+
+## More Recursion!
+
+Having solved camel case to snake case conversion in both runtime and type
+domain, let's do the same of reverse.
+
+```typescript
+// Iterative version
+const toCamelCase = (snakeCaseString: string) =>
+  snakeCaseString.replaceAll(/_./g, (match) =>
+    match.at(1).toUpperCase(),
+  )
+```
+
+Here, we find all underscores and the next character, and replace it with the
+uppercase version of the next character.
+
+> **Bug Alert**: Both `toSnakeCase` and `toCamelCase` miss a few edge cases.
+Ideally, `toSnakeCase(toCamelCase(s)) === s` and  ` toCamelCase(toSnakeCase(s))
+=== s`,  in both runtime and type domain, which is not the case here. I will
+leave it as an exercise to the reader to fix them to handle the edge cases.
+
+We can also achive the same thing in recursion:
+
+```typescript
+const capitalize = (word: string) => {
+  const [first, ...rest] = word
+  if (!first) return ""
+  return `${first.toUpperCase()}${rest.join("")}`
+}
+
+const toCamelCase = (snakeCaseString: string) => {
+  const [first, ...rest] = snakeCaseString
+  if (!first) return ""
+  const restString = rest.join("")
+  return first === "_"
+    ? capitalize(toCamelCase(restString))
+    : `${first}${toCamelCase(restString)}`
+}
+```
+
+The recursive version is similar to `toSnakeCase` w.r.t splitting and the base
+case, but has a different logic during recursion.
+
+Now, we can convert this to type domain.
+
+```typescript
+type ToCamelCase<T extends string> =
+  T extends `${infer First}${infer Rest}`
+    ? First extends "_"
+      ? Capitalize<ToCamelCase<Rest>>
+      : `${First}${ToCamelCase<Rest>}`
+    : T
+```
+
+We can go one step forward and use TS pattern matching to our advantage:
+
+```typescript
+type ToCamelCase<T extends string> =
+  T extends `${infer First}_${infer Rest}`
+    ? `${First}${Capitalize<ToCamelCase<Rest>>}`
+    : T
+```
+
+Here we added underscore to the pattern itself to simplify the recursive case.
+Note the we can't to this type of pattern matching in JS
+[_yet_](https://github.com/tc39/proposal-pattern-matching)!
+
+## Concluding Remarks
+
+Recursion is a powerful tool. It is the method of solving a chunk of a problem
+at a time, and then repeating the same on one or more subproblems. Recursion
+also helps to bring out the mathematical structure of the problem. While
+recursion is generally not optimized in many procedural languages, they are
+heavily optimized in functional languages and are fun to use!
+

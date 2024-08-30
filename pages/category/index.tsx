@@ -1,10 +1,11 @@
-import { gql } from '@apollo/client'
 import type { InferGetStaticPropsType, NextPage } from 'next'
 import { Section } from '@components/Section'
-import client from '@helpers/graphql'
 import { Placeholder } from '@components/Placeholder'
-import { Category } from '@schema/category'
 import { Tag } from '@components/Tag'
+import { getMdxFiles } from '@helpers/mdx'
+import { Category } from '@schema/category'
+
+type CategoryWithPostCount = Category & { postCount: number }
 
 const CategoryPage: NextPage<
   InferGetStaticPropsType<typeof getStaticProps>
@@ -16,7 +17,7 @@ const CategoryPage: NextPage<
           {categories.length > 0 ? (
             categories.map((category) => (
               <Tag
-                name={`${category.title} (${category.posts.length})`}
+                name={`${category.title} (${category.postCount})`}
                 link={`/category/${category.slug}`}
                 key={category.slug}
               />
@@ -33,21 +34,28 @@ const CategoryPage: NextPage<
 export default CategoryPage
 
 export const getStaticProps = async () => {
-  const { data } = await client.query<{ categories: Category[] }>({
-    query: gql`
-      query {
-        categories {
-          slug
-          title
-          posts {
-            slug
-            title
-          }
-        }
+  const posts = await getMdxFiles('posts')
+
+  const categoryMap = new Map<string, CategoryWithPostCount>()
+
+  posts.forEach((post) => {
+    post.categories.forEach((category) => {
+      if (categoryMap.has(category.slug)) {
+        categoryMap.get(category.slug)!.postCount++
+      } else {
+        categoryMap.set(category.slug, {
+          ...category,
+          postCount: 1,
+        })
       }
-    `,
+    })
   })
+
+  const categories = Array.from(categoryMap.values()).sort(
+    (a, b) => b.postCount - a.postCount
+  )
+
   return {
-    props: { categories: data.categories },
+    props: { categories },
   }
 }

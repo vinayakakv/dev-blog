@@ -1,0 +1,341 @@
+---
+slug: lazy-is-easy
+title: "Lazy is Easy"
+description: "Evaluating lazy helps to save computation power. But, how we can implement one?"
+date: "2022-07-23"
+tldr: |
+  - I came across a use case where creating an object required heavy computation
+  in all of its keys, but all of them were not accessed, based on the conditions
+  - This wasted the computation, which would have been carried out lazily
+  - I created a function `lazy` in TypeScript to do Lazy Evaluation and Result
+  Caching, using `Proxy`
+  - The input object to the `lazy` function has functions as its values, which
+  would be called `Proxy`
+  -  Function `lazy` provides a strongly typed interface, thus, not allowing
+  invalid inputs
+  - `lazy` is a convenience wrapper, which does not require the user function to
+  be changed
+categories:
+  - slug: typescript
+    title: TypeScript
+---
+
+Recently, I came across a use case in TypeScript where the properties of an
+object were expensive to calculate, and they were not used that frequently. In
+summary, the function looked like this:
+
+```typescript
+const doHeavyComputation = (args) => {
+  // do something with args
+  return value
+}
+
+const aFunctionReturningObject = () => {
+  // Do some preparation
+  return {
+    property1: doHeavyComputation(args1),
+    property2: doHeavyComputation(args2),
+    // other properties
+  }
+}
+```
+
+And, its usage looked somewhat like this
+
+```typescript
+const user = () => {
+  const returnedObject = aFunctionReturningObject()
+  if (returnedObject.property1 === someValue) {
+    // do Something with that value
+    return
+  } else if (
+    returnedObject.property2 === otherValue ||
+    returnedObject.property3
+  ) {
+    // do some other computation
+    return
+  }
+}
+```
+
+As you can see, calculating `property2` and `property3` is unnecessary if the
+`property1` equals `someValue`. However, we know this only at the time of
+usage, which does not help us in any way to optimize during the computation. In
+this short article, let's see how we can approach this problem with the
+constraints of:
+
+- Doing minimal modifications at the computation side
+(`aFunctionReturningObject`)
+- Doing **no** modification at the site of usage
+- Keeping the usages type-safe and syntactically clean (ideally, same as what
+we have written earlier)
+
+## Become Lazy
+
+Turns out that this problem is pretty common in Computer Science and its
+solution is called **[Lazy
+Evaluation](https://en.wikipedia.org/wiki/Lazy_evaluation#:~:text=In%20programming%20language%20theory%2C%20lazy,avoids%20repeated%20evaluations%20(sharing).)**.
+Lazy Evaluation is the method of evaluating an expression at the site of its
+usage, rather than the declaration. In our function `aFunctionReturningObject`,
+we are calculating `property1`, `property2`, ... during its declaration. With
+lazy evaluation in place, they would be calculated when they are used (Here, in
+`user`, during `returnedObject.property1`).
+
+While Haskell uses Lazy Evaluation by default, and some languages like Kotlin
+and Scala provide the `lazy` keyword to achieve the same, we don't have such an
+option in JS. However, instead of _returning a value_, if we _return a function
+that returns the value_, the value would not get calculated until the function
+is called. In our case, it would look something like this:
+
+```typescript
+const aFunctionReturningObject = () => {
+  // Do some preparation
+  return {
+    property1: () => doHeavyComputation(args1),
+    property2: () => doHeavyComputation(args2),
+    // other properties
+  }
+}
+
+const user = () => {
+  const returnedObject = aFunctionReturningObject()
+  if (returnedObject.property1() === someValue) {
+    // do Something with that value
+    return
+  } else if (
+    returnedObject.property2() === otherValue ||
+    returnedObject.property3()
+  ) {
+    // do some other computation
+    return
+  }
+}
+```
+
+However, this solution has a few problems:
+
+- The property access is now a function call, which requires modifications at
+the user side
+- Evaluating the same property twice, would require evaluating
+`doHeavyComputation()` twice, which might not be ideal if the heavy computation
+is returning the same values every time
+
+## Lazy Pro
+
+Let's address these problems by writing a function `lazy`, that would take in
+an object with values in the format `() => any`, and make the property access a
+regular one instead of a function call. It will also take care of caching the
+evaluations.
+
+To address the cases of intercepting the property access of an object and
+redefining its behavior, JS provides a mechanism named
+[Proxy](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy).
+We can wrap our original object with the proxy, along with handlers to redefine
+its behavior. Let's look into the implementation of `lazy` using `Proxy`.
+
+```typescript
+const lazy = <T extends {}>(object: T) => {
+  const cache = {} as T
+  return new Proxy(object, {
+    get(target, prop) {
+      const key = prop as keyof T
+      if (!(key in cache)) {
+        const value = target[key]
+        cache[key] = value ? value() : undefined
+      }
+      return cache[key]
+    },
+  })
+}
+```
+
+The logic is straightforward albeit with an error:
+
+- We take in a type `T` that extends `{}`, as Proxy requires an object as its
+input
+- In `Proxy`, we intercept the `get` method, which corresponds to all property
+accesses
+- The `get` method takes `target` (in our case, same as `object`) and the
+`prop`, the property being accessed as parameters
+- `prop` can be any `string | symbol`, we cast it to `keyof T` as `key`.
+- We check if `key` is the `cache`, if it isn't, we access it from `target`,
+check if it is not undefined, and evaluate it
+- Finally, we return `cache[key]`
+
+TS screams us with an error that we can not use `value()`, as it is `unknown`.
+This is true, as we don't know the values of the type `{}` in advance. We need
+to restrict ourselves to a subtype of `{}`, that has `() => any` as values.
+
+```typescript
+type LazyInput = {
+  [Key: string]: () => any
+}
+```
+
+Then, we can modify the signature of `lazy` as,
+
+```typescript
+const lazy = <T extends LazyInput>(object: T) => {
+  // same as before
+}
+```
+
+Cool! the `lazy` function is free of type errors now. Let's check it in action.
+Before that, to check if caching is working, let's define a `logAndReturn`
+function that does exactly what it is named :smile:
+
+```typescript
+const logAndReturn = <T>(value: T) => {
+  console.log("Logging", value)
+  return value
+}
+```
+
+Then, let's prepare input for `lazy`
+
+```typescript
+const input = {
+  intValue: () => logAndReturn(2),
+  stringValue: () => logAndReturn("string")
+}
+```
+
+Let's call `lazy` now!
+
+```typescript
+const lazyOutput = lazy(input)
+```
+
+Let's log its values
+
+```typescript
+console.log(lazyOutput.intValue) // "Logging 2", 2
+console.log(lazyOutput.intValue) // 2
+console.log(lazyOutput.intValue) // 2
+console.log(lazyOutput.stringValue) // "Logging string", string
+console.log(lazyOutput.stringValue) // string
+```
+
+The log looks nice, on the first property access, it called `logAndReturn` and
+subsequent accesses used the value from the cache. However, most of the use
+cases would not be to log the value, rather than to use it. Let's try that as
+well:
+
+```typescript
+const addOne = (x: number) => x + 1
+const addPrefix = (prefix: string, value: string) =>
+  `${prefix}${value}`
+
+const intResult = addOne(lazyOutput.intValue)
+const stringResult = addPrefix(
+  "result:",
+  lazyOutput.stringValue
+)
+
+console.log({ intResult, stringResult })
+```
+
+Ah, now we see an error in calls to `addOne`!
+
+```
+Argument of type '() => number' is not assignable to parameter of type 'number'.
+Argument of type '() => string' is not assignable to parameter of type 'string'.
+```
+
+It turns out that the type of `lazyOutput` is still
+
+```typescript
+type LazyOutput = typeof lazyOutput
+/*
+type LazyOutput = {
+    intValue: () => number;
+    stringValue: () => string;
+}
+*/
+```
+
+with the values being functions. But, we want their return types instead! We
+can fix that by creating a type `Lazy<T>`
+
+```typescript
+type Lazy<T extends LazyInput> = {
+  [Key in keyof T]: ReturnType<T[Key]>
+}
+```
+
+Note that `ReturnType` is a TS inbuilt type, that returns the return type of a
+function. Now, we modify the `lazy` function as:
+
+```typescript
+const lazy = <T extends LazyInput>(object: T) => {
+  const cache = {} as T
+  return new Proxy(object, {
+    // same as before
+  }) as Lazy<T>
+}
+```
+
+With this, the errors in the call of `addOne` are now gone, and the logic in
+the type domain matches that of the execution domain. The `LazyOutput` type is
+now,
+
+```typescript
+type LazyOutput = typeof lazyOutput
+/*
+type LazyOutput = {
+    intValue: number;
+    stringValue: string;
+}
+*/
+```
+
+Which is what we expected. Now, we can return to our initial example and can
+rewrite it as:
+
+```typescript
+const aFunctionReturningObject = () => {
+  // Do some preparation
+  return lazy({
+    property1: () => doHeavyComputation(args1),
+    property2: () => doHeavyComputation(args2),
+    // other properties
+  })
+}
+
+const user = () => {
+  const returnedObject = aFunctionReturningObject()
+  if (returnedObject.property1 === someValue) {
+    // do Something with that value
+    return
+  } else if (
+    returnedObject.property2 === otherValue ||
+    returnedObject.property3
+  ) {
+    // do some other computation
+    return
+  }
+}
+```
+
+In this code, we wrapped the return value with `lazy` and deferred the
+computations of the values by putting them inside a function. The `lazy`
+function did not require us to change the `user` function at all, which is very
+good, as we don't know from how many places `aFunctionReturningObject` would be
+called, especially if it is in a library.
+
+## Try it Yourself!
+
+The code for this article is available on
+[CodeSandbox](https://codesandbox.io/s/little-grass-8qbn70). Feel free to fork
+it out and play with it.
+
+## Lazy Pro Max
+
+Some of you might object to the key naming in the argument of `lazy`. Since we
+now have a function as a value, it would be rather good to name `property1` as
+`getProperty1`, which would make things more clear. We can hand off the
+responsibility of key renaming to `Proxy`, which would convert the access of
+`property1` to `getProperty1` call.
+
+This is a valid objection. However, implementing these rules out that _Lazy is
+Easy_, thus, I will cover it in another article _Lazy is Hard_ :sweat_smile:.

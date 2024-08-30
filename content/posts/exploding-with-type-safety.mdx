@@ -1,0 +1,459 @@
+---
+slug: exploding-with-type-safety
+title: 'Exploding with Type Safety'
+description: 'We explore the operation of exploding an object in this post, and make it robust by adding strong typing for its inputs and output'
+date: '2023-09-24'
+tldr: |
+  - We solve an interesting problem of _exploding_ an array property of an object.
+  - The `explode` function takes in a object, and its key as the input. It
+  returns an array where the keys and values are derived by concatenating every
+  element of an array with rest of the properties of the input object
+  - We implement the `explode` function in JS and define a goal of making it
+  type-safe: it should not accept invalid arguments and should return a typed
+  result
+  - We use `keyof ` operator combined with _key remapping_ to make the arguments
+  type-safe
+  - We use a combination of `Omit` and `number` index to make return value typed
+  - We test our approach by calling the function and verifying the correctness of
+  both results and types
+categories:
+  - slug: typescript
+    title: TypeScript
+---
+
+Suppose we have an object, and one of its fields an array. Taking every array
+elements and adding the rest of the objects keys is _exploding_ the object
+w.r.t that array element. For example, if we have an object `{university: "XYZ", batch: 2019, students: [{name: "Alice"}, {name: "Bob"}]}`, exploding it
+w.r.t `students` results in `[{university: "XYZ", batch: 2019, name: "Alice"}, {university: "XYZ", batch: 2019, name: "Bob"}]`.
+
+We can encounter the need for the explosion in many cases. For example, let's
+have an e-commerce order object, where it contains the individual items in an
+array. When we want to process individual items with the order details,
+explosion is the suitable operation.
+
+With understanding the _explode_ operation, let's proceed to define our goals
+clearly w.r.t to the result and type-safety
+
+## The Goals
+
+- We want to have a function `explode(object, key)` which does the explosion
+- The `key` not being present in `object` should result in type error
+- The `key` not being array should result in type error
+- The returned array must be appropriately typed
+
+We are resorting to type errors in most of the cases as we can be confident
+about the function inputs when we run the code inside our app. If we want to
+ship this function in a library, we need to do runtime checks as well, as there
+is a possibility of this code called in plain JS without any typechecking. In
+this post, for the sake of breivity, We are omiting the runtime checks.
+
+## Solution without Types
+
+The problem of explosion is easy and straightforward - we extract the value at
+the key, map over the array and add rest of the properties to every object in
+it.
+
+```javascript
+const explode = (object, key) => {
+  const { [key]: array, ...rest } = object
+  return array.map((item) => ({
+    ...item,
+    ...rest,
+  }))
+}
+```
+
+## Moving to the Type Realm
+
+Now, let's add the types to the `explode` function, starting with the basics to
+match the JS schematics:
+
+```typescript
+const explode = (object: object, key: string) => {
+  const { [key]: array, ...rest } = object
+  return array.map((item) => ({
+    ...item,
+    ...rest,
+  }))
+}
+```
+
+TS yells us at about two problems here:
+
+1. We don't know if the `key` is indeed a key of the `object`
+
+2. By virtue of that, `array` has type `any`, which makes `item` implicitly
+   `any`.
+
+Let's first restrict `key` to be a valid key of `object`. Since our parameters
+have dependency now, we need to make our function generic. If the generic
+parameter is `T`, we can either mark `object` or `key` as `T`. For the reasons
+that will become evident later, let's mark the `object` as `T`. With that,
+let's also add generic _constraint_ on `T` to be a subtype of `object`.
+
+```typescript
+const explode = <T extends object>(object: T, key: keyof T) => {
+  const { [key]: array, ...rest } = object
+  return array.map((item) => ({
+    ...item,
+    ...rest,
+  }))
+}
+```
+
+With this, we restrict `key` to be a valid key of `T`, not any string. This
+solves the problem #1. We still need to solve problem #2. Before doing that,
+let's first restrict `key` to only the keys where value is an array.
+
+## Hello, Key Mapping!
+
+Let's first understand how `keyof T` looks like before filtering it:
+
+```typescript
+type UniversityRecord = {
+  university: string
+  batch: number
+  students: { name: string }[]
+}
+
+type Keys = keyof UniversityRecord
+// "university" | "batch" | "students"
+```
+
+Thus, `Keys` is a union of strings, and it does not recursively descend into
+the object structure, which is as expected. Now, can we loop over the union?
+**Unfortunately not**. To understand why, remember there is no _order_ in
+unions - `a | b | c` as `b | c | a` and etc. To loop over the keys and filter
+them out, we can use [_key
+remapping_](https://www.typescriptlang.org/docs/handbook/2/mapped-types.html#key-remapping-via-as)
+
+```typescript
+type ArrayKeys<T extends object> = keyof {
+  [K in keyof T as T[K] extends any[] ? K : never]: unknown
+}
+```
+
+There are so many things going on here even if the code is deceptivly small.
+Let's break down the things happening here:
+
+- We are looping over every key `K` in `keyof T` in a mapping context (inside
+  `[]`). Remember that such loop was not possible with unions.
+- We are remapping the key using `as` keyword. If we map the key to `never`, it
+  will be excluded
+- Remapping supports conditions too - we check if `T[K]` is an array. If so, we
+  keep `K` as it is; otherwise, we will exclude it using `never`.
+
+Using this type helper, we can now define `explode` function as:
+
+```typescript
+const explode = <T extends object>(object: T, key: ArrayKeys<T>) => {
+  const { [key]: array, ...rest } = object
+  return array.map((item) => ({
+    ...item,
+    ...rest,
+  }))
+}
+```
+
+Now, we have to solve one problem: TS _still_ does not know that `object[key]`
+is an array. While we can do further type manipulations, we can use runtime
+functions to solve this.
+
+```typescript
+const explode = <T extends object>(object: T, key: ArrayKeys<T>) => {
+  const { [key]: array, ...rest } = object
+  return Array.isArray(array) ? array.map((item) => ({ ...item, ...rest })) : []
+}
+```
+
+By adding `Array.isArray`, the `array` is treated as `any[]`. TS defines
+`isArray` as a [_type
+predicate_](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates)
+with the following declaration:
+
+```typescript
+function isArray(arg: any): arg is any[]
+```
+
+When `isArray` returns `true`, TS knows that the `arg` is `any[]`, so we can
+access `map` and `item` is infered as `any`. Let's try our new function
+definition to check if argument types work properly:
+
+```typescript
+const res1 = explode(
+  {
+    university: 'XYZ',
+    batch: 2019,
+    students: [{ name: 'Alice' }, { name: 'Bob' }],
+  },
+  'university'
+) // type error
+
+const res2 = explode(
+  {
+    university: 'XYZ',
+    batch: 2019,
+    students: [{ name: 'Alice' }, { name: 'Bob' }],
+  },
+  'students'
+) // no error
+```
+
+Well, so far so good. But if we check the return type of `explode`, it is
+`any[]`, which makes it less useful in practice. Let's solve that by adding a
+return type to it.
+
+## Enter Type Gymnastics
+
+We have following information about `explode(object, key)`:
+
+- It returns an array (well, TS is intelligent to know that already, as it
+  infers `any[]` as the return type)
+- Every element of the array is an object.
+- The object is derived by concatenating two objects:
+  1. `object` with `key` removed
+  2. the type of elements of `object[key]`
+
+With this information, we can write a type helper `Explode`:
+
+```typescript
+type Explode<T extends object, K extends keyof T> = T[K] extends any[]
+  ? (Omit<T, K> & T[K][number])[]
+  : never
+```
+
+Few interesting things are happening here:
+
+- We constrint `K` to be `keyof T`, not `ArrayKeys<T>`. Using `ArrayKeys` here
+  does not add any useful information as TS does not get to know `T[K]` is an
+  array. Thus, we choose a simpler path.
+- We do the check `T[K] extends any[]` again, due to the reason explained
+  above. If it does not, we return `never`. This case _never_ happens if `K
+extends ArrayKeys<T>`
+- If the check passes, we _omit_ `K` from `T` and intersect with the
+  constituent type of `T[K]`
+- To get the constituent type of `T[K]`, we index it on `number`, as arrays are
+  indexed based on number
+
+Now, we can proceed to type the `explode` function completly:
+
+```typescript
+const explode = <T extends object, K extends ArrayKeys<T>>(
+  object: T,
+  key: K
+) => {
+  const { [key]: array, ...rest } = object
+  return (
+    Array.isArray(array)
+      ? array.map((item) => ({
+          ...item,
+          ...rest,
+        }))
+      : []
+  ) as Explode<T, K>
+}
+```
+
+It looks little bit different from our above definition. Apart from the `as
+Explode<T,K>` cast, we typed `key` with `K` where `K extends ArrayKeys<T>`.
+Typing `key` as `ArrayKeys<T>` and passing `typeof key` to `Explode` will keep
+the generic argument to `Explode` as `ArrayKeys<T>`, not the specific literal
+type that is passed in `key`. With this, we can proceed to _explode_!
+
+## Testing
+
+Let's call `explode` few times to check if everything works well. For testing,
+let's assume we have an e-commerce order object:
+
+```typescript
+const order = {
+  type: 'Order',
+  customer: {
+    name: 'Alice',
+    address: '123 st.',
+  },
+  items: [
+    {
+      id: '111',
+      name: 'Long sleeve T Shirt',
+      price: 15,
+      currency: 'USD',
+    },
+    {
+      id: '232',
+      name: 'Jeans',
+      price: 12,
+      currency: 'USD',
+    },
+  ],
+  offers: [
+    {
+      code: 'FIRST-CUSTOMER',
+      discountPercentage: '20',
+    },
+    {
+      code: 'REFFERAL',
+      discountPercentage: '10',
+    },
+  ],
+}
+```
+
+As per our expectations, `explode` on this object should work for `items` and
+`offers`, but not on other keys:
+
+```typescript
+const result1 = explode(order, 'type') // type error
+const result2 = explode(order, 'items') // works
+/*
+const result2 = [
+  {
+    id: "111",
+    name: "Long sleeve T Shirt",
+    price: 15,
+    currency: "USD",
+    type: "Order",
+    customer: {
+      name: "Alice",
+      address: "123 st.",
+    },
+    offers: [
+      {
+        code: "FIRST-CUSTOMER",
+        discountPercentage: "20",
+      },
+      {
+        code: "REFFERAL",
+        discountPercentage: "10",
+      },
+    ],
+  },
+  {
+    id: "232",
+    name: "Jeans",
+    price: 12,
+    currency: "USD",
+    type: "Order",
+    customer: {
+      name: "Alice",
+      address: "123 st.",
+    },
+    offers: [
+      {
+        code: "FIRST-CUSTOMER",
+        discountPercentage: "20",
+      },
+      {
+        code: "REFFERAL",
+        discountPercentage: "10",
+      },
+    ],
+  },
+]
+*/
+const result3 = explode(order, 'offers') // works
+/*
+const result3 = [
+  {
+    code: "FIRST-CUSTOMER",
+    discountPercentage: "20",
+    type: "Order",
+    customer: {
+      name: "Alice",
+      address: "123 st.",
+    },
+    items: [
+      {
+        id: "111",
+        name: "Long sleeve T Shirt",
+        price: 15,
+        currency: "USD",
+      },
+      {
+        id: "232",
+        name: "Jeans",
+        price: 12,
+        currency: "USD",
+      },
+    ],
+  },
+  {
+    code: "REFFERAL",
+    discountPercentage: "10",
+    type: "Order",
+    customer: {
+      name: "Alice",
+      address: "123 st.",
+    },
+    items: [
+      {
+        id: "111",
+        name: "Long sleeve T Shirt",
+        price: 15,
+        currency: "USD",
+      },
+      {
+        id: "232",
+        name: "Jeans",
+        price: 12,
+        currency: "USD",
+      },
+    ],
+  },
+]
+*/
+```
+
+We can also check the output types of `result2` and `result3`
+
+```typescript
+type Simplify<T> = T extends object
+  ? {
+      [K in keyof T]: Simplify<T[K]>
+    }
+  : T
+
+type Result2 = Simplify<typeof result2>
+
+/*
+type Result2 = {
+  type: string
+  customer: {
+    name: string
+    address: string
+  }
+  offers: {
+    code: string
+    discountPercentage: string
+  }[]
+  id: string
+  name: string
+  price: number
+  currency: string
+}[]
+*/
+
+type Result3 = Simplify<typeof result3>
+
+/*
+type Result3 = {
+  type: string
+  customer: {
+    name: string
+    address: string
+  }
+  items: {
+    id: string
+    name: string
+    price: number
+    currency: string
+  }[]
+  code: string
+  discountPercentage: string
+}[]
+*/
+```
+
+We can see that the type result matches the type of execution result, which
+made `result2` and `result3` strongly typed, and, caught invalid key in
+`result1`, making our `explode` function robust in type domain.

@@ -1,0 +1,192 @@
+---
+slug: splitting-microservice
+title: "Splitting a Microservice"
+description: "We had a microservice hosted in Google Kubernetes Engine that was giving us 5xx errors during scaling. We explore the reasons and solution in this post."
+date: "2024-04-07"
+tldr: |
+  - We had a microservice at work deployed in Kubernetes that was responsible for
+  data processing as well as serving frontend
+  - We had configured a Horizontal Pod Autoscaler to scale the pods on the events
+  of huge volumes of incoming data
+  - We started observing HTTP 5xx errors during scaling events, which triggered
+  alerts
+  - While investigating, we found we had a `tcpSocket` health check which
+  reported the pods as healthy before they were healthy. We changed it to a
+  `httpGet` health check with an API backing it
+  - We continued to see the errors during scaling. To confirm things once more,
+  we checked things from inside Kubernetes using cluster local domains, and the
+  things were perfect!
+  - The issue was with GKE configuration and reconciliation delays. Instead of
+  choosing to configure things properly, we chose the path to split our
+  microservice into UI backend and data processing backend, which exclusively
+  listened to MQ messages and processed them. The UI backend is kept at constant
+  replicas and the data processing backend scales via the HPA
+  - We achieved this by introducing an environment variable to turn off the
+  message processing and adding this to a duplicate deployment. 
+  - While this solution made things work again, we can't have such solutions
+  always - what if we NEED the web frontend to scale? We are considering writing
+  an MWE and submitting it to Google.
+  - This exercise made us think about code architecture a little bit - while we
+  already benefit greatly from monorepo, can we have a monolith and generate
+  microservice bundles? I will explore this at length in my next article.
+  
+categories:
+  - slug: infra
+    title: Infrastructure
+---
+
+We have a microservice at our workplace that handles Data Ingestion. That
+microservice also comes with a UI to configure and tune the Ingestion process.
+Eventually, we added a few features to the same UI such as a dashboard showing
+derived metrics from the data. We host this microservice in Kubernetes and
+expose it to the users through a GKE Ingress.
+
+## The Problem
+
+Everything was working fine until we saw all pods under high load during bursts
+of incoming data. Our main data receiver services put the messages into
+RabbitMQ, which our microservice in question consumes. Our microservice is
+written in NodeJS and we do not have the luxury of multi-threading (we have
+Worker Threads, but we wanted to keep things simple). Thus, we saturate the CPU
+during the loads to keep things optimized, resulting in near 100% utilization. 
+
+There is a solution for this problem in k8s - Horizontal Pod Autoscalar (HPA),
+which watches a deployment and scales it up and down to keep a target metric
+constant. We configured our HPA for our microservice with the target of keeping
+target CPU usage at 50% (which never happens on the load, it will always be
+saturated), and thought the problem was solved. Alas, the problem started
+there!
+
+We soon started hearing our platform engineers getting paged and woken up at
+midnight as our service was throwing 500s to the users. It was quite mysterious
+to begin with as the UI and the APIs serving it were working fine. For the
+first few days, the solution to clear the page was to wake up, visit the UI in
+the browser, and, hit refresh 5-6 times! This problem had to be solved.
+
+## Digging Deep 
+
+Since we knew that the 500s problem started after we configured the HPA, we
+knew it had to do something with it. We began digging it up in a lower
+environment.
+
+The first thing that we had to do was delete the HPA and take the reins of
+scaling into our control. Fortunately, k9s provide an easy UI to scale a
+deployment up and down. We started with scaling our pod to 30, which took some
+time to get created. The scale triggered a new node allocation as well, as we
+run our lower environments as minimally as possible. When the deployment was
+scaling, we kept repeatedly hitting the UI in the browser and saw nothing
+suspicious. After this, we scaled down the deployment and saw nothing special
+as well. We thought hitting the UI manually was not enough and wrote a cURL
+script to do the task for us with a sleep of 0.1s.
+
+Then we realized that our lower environment does not utilize an ingress, rather
+than a nginx proxy to keep things simple. We pin the traffic to go to one pod
+in the proxy. This is not an ideal production setup but sufficed for lower
+environments as we mostly run only one replica there.
+
+Thus, we decided to create an Ingress in the lower environment to make it
+similar to the production one. Then, we repeated the exercise of scale-ups and
+scale-downs. We started seeing 504s and 503s in the script output both when
+scaling up and scaling down. Finally, we were able to reproduce the issue.
+
+## Health Checks
+
+Google has good documentation on why 5xx errors happen during scale downs; it
+is due to the delay in the sync between the ingress and Kubernetes cluster.
+However, it does not explain the errors during scale-ups. Then, we had to
+carefully inspect our deployment yamls and found that we have defined the
+`tcpSocket` health check for our service.
+
+While `tcpSocket` is a good check for the service which becomes ready to accept
+connections as soon as it can start up, it was not ideal for our service, as it
+has to do some initial service discoveries. We use Consul to do service
+discovery and run it in the pod along with the service container. And, it is
+sometimes slower to start than our service itself. This makes our application
+crash if the Consul is too late to start. Eventually, our service becomes
+healthy after several crashes when the Consul is fully up.
+
+This meant that we had to implement an API endpoint returning the status of
+consul, and use that in the `readinessProbe` through `httpGet`. We used the
+same API for `livenessProbe` as well, since we did not have other requirements
+for it. If our NodeJS process is struck (maybe doing a long-running CPU-bound
+task), it will not respond to the liveness probe, and eventually be killed by
+the k8s. We tested new health checks and verified that they were working well.
+It was the time for a new rapid scale-up and scale-down test.
+
+And, to our surprise, we did not see any changes, the errors continued coming
+up despite setting the same health check on Ingress `BackendConfig` as well!
+
+## A deviation
+
+This time, we wanted to do the test from inside the cluster using cluster local
+DNS. We jumped into one of our containers (again, k9s makes it very easy) and
+ran the script. This time, no errors while scaling up and down!
+
+This could mean one thing - there is something fishy going on with GKE's
+Ingress. We have to report the issue with an MWE yet, but we wanted a solution
+for this problem immediately as the users were complaining about the issues a
+lot.
+
+## The Solution
+
+We knew that this service supported two sets of use cases - processing the data
+and serving the front end and APIs. The scaling was caused by data processing
+while the frontend traffic is predictable and steady. Thus, we can have two
+sets of pods
+
+1. To serve frontend traffic - with a constant number of replicas and behind a
+service and exposed through Ingress
+2. To serve data processing needs - with a HPA, not exposed to the public
+
+This was an easy solution for us as all our data processing inputs came through
+MQ, and we had a `listenToMqMessages` function to set up the listeners. If we
+ever had an API to handle data ingestion, we would simply write a message to MQ
+in the API. 
+
+In Kubernetes, we can't have a single deployment serving both needs. So, we
+created a `service-noweb` deployment that sets an environment variable
+`NO_WEB=true`. Our application checks for the value of this variable and turns
+on listening to MQ messages. The `NO_WEB=false` deployments can still write to
+MQ, but can't listen to any messages.
+
+Now, we have two deployments of the same application hosted for different
+needs. Even in the case of heavy data processing loads, the UI and associated
+APIs are not impacted as the data processing happens independently.
+
+## Thoughts
+
+This solution is simple and feels hacky. Shouldn't the scaling have happened
+smoothly and have protected us from doing all these? - Ideally yes. But the
+world is not as simple as that. Google recommends setting a hook before pod
+termination just to buy them time to unregister the pod from the Ingress. I
+feel that is a hacky thing to do - as it is not obvious from just seeing the
+configuration why it is there.
+
+This exercise resulted in copy-pasting the entire deployment spec, just to
+change the names and add a new environment variable - this is not DRY. We are
+considering moving this to FluxCD with kustomization templates to solve this.
+
+However, there might be a real case where we want to scale our web frontends up
+one day in the future. This solution does not take care of that at all assuming
+the traffic is constant and a pre-determined number of replicas are sufficient
+to handle them. When that would be the case, I think GKE Ingress would have a
+fix in place.
+
+We had another microservice facing a similar issue. But it was hard to split it
+into critical and non-critical paths as we did in the case of this
+microservice. We are exploring running haproxy pods behind ingress (they
+reconcile faster than the Ingress controller), which will then route the
+traffic to this microservice - This is more hackier than splitting the
+microservice. We would not have needed all of this if the GKE platform
+implementation of the Ingress controller was perfect.
+
+## Moving beyond
+
+The exercise of splitting the microservice into two deployments made me think
+about Modular Monoliths for a bit. We already host all our NodeJS applications
+under a monorepo and greatly benefit from code sharing across projects without
+having to set up package publishing infrastructure. Instead of monorepo, what
+if we had a monolith with some rules about code organization, that generates
+several microservice bundles? I will be processing this thought for some time
+and will come up with an article soon .... Stay tuned!
+

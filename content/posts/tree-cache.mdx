@@ -1,0 +1,242 @@
+---
+slug: tree-cache
+title: "Tree Cache"
+description: "How we implemented a type safe distributed cache in TS that supported partial invalidations"
+date: "2024-02-18"
+tldr: |
+  - We implemented a type safe cache to cache the function results in JS
+  - The way we implemented cache keys turned the cache into a tree structure,
+  which helped us invalidate few branches selectively
+  - In the end, we learnt the Cache invalidation and Naming things are indeed the
+  hard things in Computer Science
+categories:
+  - slug: typescript
+    title: TypeScript
+---
+
+Cache is one of the important building blocks in any application. When we
+started to build projects in NodeJS, we had to come up with our own
+implementation of the cache that abstracted the underlying data store. We had
+the following goals in mind when starting to build a cache:
+
+- **Ergonomic:** The cache should be easy to use, with minimal changes to
+existing code base
+- **Performant:** The cache operations should not slow down the system
+- **Easy to Invalidate:** The cache should support easy partial/full
+invalidations that can be triggered by the application
+- **Type Safe:** The cache API along with the invalidation API should be type
+safe in TypeScript.
+
+We had built an in-memory cache earlier as it was easy to implement (you know?
+software developers are lazy...) But we soon ran into inconsistency problems
+when we scaled our pods to more than one. It was the time to build a truly
+distributed cache.
+
+## The API design
+
+To make the cache ergonomic, the API should be really simple, seamless and
+type-safe. While languages such as Java and Python provide `@` decorators that
+can be used to wrap functions and classes, JS supports such decorators only for
+classes and class methods. We do not use classes mostly, resorting to functions
+instead. So, decorators were not an option for us.
+
+The natural option that remains after that is the Higher Order Functions. We
+defined a `cached` function, that takes another function as the input and adds
+caching capabilities to it. So, if we have a function named `getStudentInfo`,
+adding a cache to is as simple as `const cachedGetStudentInfo =
+cached(getStudentInfo)`.
+
+We want the `cached(f)` to be type-safe -- we only support passing functions as
+arguments. We further restricted ourselves to support pass in only the `async`
+functions that makes external network calls. So, we came up with the following
+type for `f`:
+
+```typescript
+type Cacheable = (...args: any[]) => Promise<any>
+```
+
+Now, `cached` function does not modify the function signature in any way, the
+caller still continues to call it like the original function. So, its signature
+looks like:
+
+```typescript
+const cached = <T extends Cacheable>(f: T) => T
+```
+
+## Implementation
+
+We outsource the responsibility of storage, distribution and fault tolerance to
+Redis. We store the cached values in the plain key value space of Redis. We
+derive the key by concatenating unique ID of the function with the JSON
+representation of the arguments. We store the resulting value as a JSON as
+well. 
+
+> This adds a serious limitation to the functions that we can cache, for their
+arguments to be serializable and deserializable. Since our function arguments
+are plain values and objects at the most, this is not a problem for us. 
+>
+> Whenever the situation demanded us to cache a non-serializable value, we
+ended up using in-memory cache without any distribution.
+
+The key implementation detail comes in how we want to define the cache key. For
+example, we can do
+
+```typescript
+const getCacheKey = (...args: any[]) => JSON.stringify(args)
+```
+
+or, 
+
+```typescript
+const getCacheKey = (...args: any[]) => args.map(arg =>
+JSON.stringify(arg)).join("/")
+```
+
+While both ways can derive a valid string key, the latter preserves the
+position of the arguments and naturally forms a tree structure. To illustrate
+it further, suppose we have a function `getStudentInfo = (university: string,
+year: number, course: string) => Student[]`, and we derive cache keys using the
+second function. They might look like:
+
+```
+"uni-1"/2022/"CS-101"
+"uni-1"/2023/"CS-101"
+"uni-2"/2023/"CS-Intro"
+"uni-2"/2023/"CS-DBMS"
+"uni-1"/2023/"CS-201"
+```
+
+Note that quotes in the keys come from the JSON representation itself. We
+observe that different universities follow different patterns while naming
+courses as well. This key representation comes powerful when we want to
+invalidate the cache.
+
+## Invalidation
+
+> There are only [two hard
+things](https://martinfowler.com/bliki/TwoHardThings.html) in Computer Science:
+cache invalidation and naming things.
+>
+> -- Phil Karlton
+
+Well, this is one of the places the things get to start interesting. When using
+an in-memory cache, we had an `invalidate` function that busted the entire
+cache by replacing the cache storage with `{}`, which was an `O(1)` operation.
+If we try to do the same thing for the tree cache, we have to delete `n` keys,
+making it `O(n)` -- A tradeoff .
+
+Often, we do not need to bust the WHOLE cache, but rather some keys of it.
+Since our cache implementation wraps the functions and we derive cache keys
+using function arguments, it makes sense to invalidate the cache using a
+_prefix_ of the cache keys, which prunes a branch of the tree. In the above
+example, we can choose to invalidate all entries starting with `"uni1"`, or
+`"uni2"/2023`, depending on the use case. While the invalidation is still
+`O(n)`, we have got more utility.
+
+Suppose we have to write `invalidate` function to achieve this thing, and
+return it as a property of the cached function. The big question remains as how
+to make this function type-safe? For our example function `getStudentInfo`, the
+`invalidate` call might look like any of the below:
+
+- `invalidate()` - Invalidates all entries in the cache
+- `invalidate(university: string)` - Invalidates all entries beginning with
+`university`
+- `invalidate(university: string, year: number)` - Invalidates all entries
+beginning with `university` and `year`
+- `invalidate(university: string, year: number, course: string)` - Invalidates
+a specific entry that has the values matching all of  `university`, `year` and
+`course: string`
+
+Fortunately, TS has a `Parameters<T extends Function>` type helper can get us
+half way there - Given a function type `T`, it returns its parameter types as
+an array. For example:
+
+```typescript
+const getStudentInfo = (university: string, year: number, course: string) => {}
+
+type Parms = Parameters<typeof getStudentInfo>
+// type Params = [university: string, year: number, course: string]
+```
+
+Note that the return type preserves the names of the arguments as labels. But
+these names can not be used in any ways and just serve to help developers. In
+essence, the returned type is equivalent to `[string, number, string]`.
+
+Now we have to define a type helper `Prefixes<T extends any[]>` that generates
+all possible prefixes of `T`, starting with an empty array. As usual, we can
+invoke the magic of pattern matching and recursion to solve this.
+
+```typescript
+type Prefixes<T extends any[]> = T extends [infer First, ...infer Rest] //
+First we take destructure the elements of the array
+  ?
+      | [] // An empty array is a prefix of all arrays
+      | [First, ...Prefixes<Rest>] // Then we derive other prefixes by
+combining the First element with all the prefixes of Rest elements
+  : [] // If input is not an arry, there are no prefixes
+
+type Result = Prefixes<['a', 'b', 'c', 'd']>
+// type Result = [] | ["a", "b", "c", "d"] | ["a"] | ["a", "b"] | ["a", "b",
+"c"]
+```
+
+With the `Prefixes` in our hand, we can now define our `cached` function
+completely, using in memory storage.	
+
+```typescript
+const cached = <T extends Cacheable>(f: T) => {
+  const cache: Record<string, any> = {}
+  const getKey = (args: any[]) =>
+    args.map((arg) => JSON.stringify(arg)).join('/')
+
+  const wrapped = (async (...args: Parameters<T>) => {
+    const key = getKey(args)
+    if (!(key in cache)) {
+      cache[key] = await f(args)
+    }
+    return cache[key]!
+  }) as T
+
+  const invalidate = async (...args: Prefixes<Parameters<T>>) => {
+    const prefix = `${getKey(args)}/`
+    const existingKeys = Object.keys(cache)
+    existingKeys.forEach((key) => {
+      if (key.startsWith(prefix)) delete cache[key]
+    })
+  }
+
+  return Object.assign(wrapped, { invalidate })
+}
+```
+
+Redis provides convenient commands to iterate over the keys with pattern
+matching, thus saving us from looping over all the key space.
+
+## The other hard thing
+
+Our `cached` function referenced Redis client and Cache TTL values from global
+scope variables. When we wanted to use this utility across different projects,
+we have to remove these dependencies from `cached`. Our method of dependency
+injection was through a Higher Order Function that looked like `(redisClient:
+RedisClient, ttl: number) => <T extends Cacheable>(f: T) => T`. Now the hard
+problem was to name that HOF!
+
+We iterated over the names `getCached` - absurd, `getCacheFunction` - more
+absurd! At the end, we ended up naming it `cacheFactory` - albeit it was a
+`Factory`!
+
+> Naming things has an impact on code readability and ease of debugging. Naming
+Higher Order Function is more hard. Few days back, I was finding a bug during
+data processing where a validation was failing for some data. After the
+validation, the data was supposed to be processed and ingested.
+>
+> When I was going throgh the code (written by me, btw), I found the calls to
+`validate` and `process` were in sequence, and the way our systems worked, all
+calls to `validate` should have been failed; but mysteriously, some records
+were passing.
+>
+> At the end, It turned out to be `validate` and `process` were Higher Order
+Functions which returned the functions for validation and processing
+respectively. If we knew this earlier, we could have saved around 1 day of
+speculation why the bug was there at all. And we learnt a less to name things
+properly (yeah, we know that is hard) to help our future selves.

@@ -1,0 +1,342 @@
+---
+slug: type-inference
+title: "Making Types Work for You"
+description: "How to TypeScript without writing types"
+date: "2023-09-07"
+tldr: |
+  - We try to look into how we can make TS work for us using inference, rather
+  than manually typing everything
+  - We take an example of an MQ listener where we want to validate incoming
+  messages against a `zod` schema and process them if validation is successful
+  - We try to implement the generic function `listener<T>` with `(schema,
+  handler)` with `T` being the type of the message. We hit roadblocks when
+  deriving the type for `schema`
+  - We try to go the other way round, by making the `schema` as `T`, then
+  deriving the type of message as `z.infer<T>`, which works beautifully
+  - We learn that choosing the right parameter to be generic is important when
+  the parameters are interdependent 
+  - We then proceed to split our code into library and application code, where
+  the library does most of the TS heavy lifting. The application code contains no
+  manual typings but comes with strong type checks, describing the power of
+  inference.
+categories:
+  - slug: typescript
+    title: TypeScript
+---
+
+There is a big portion of people who hate TypeScript because they think they
+need to type _everything_ and it makes the code ugly and unreadable. While
+typing everything does take the ergonomics away, TypeScript **does not** force
+you to type everything - if you type the key parts of your code and logic (most
+of the time, they are libraries), it can _infer_ the type in the rest of the
+places. In this article, I will take you through an example where we need to
+type the core and reap the benefits of inference everywhere else.
+
+## The Problem
+
+We want to define an MQ listener, that
+
+- Could validate the incoming messages to be a JSON
+- Could validate the JSON to follow a certain schema
+- Execute the async handler function with the parsed object
+- The handler returns a boolean indicating whether the execution of the message
+was successful 
+
+For the sake of simplicity, let's assume that the `listener` is a Higher-order
+function (i.e., which takes another function as input) taking the `handler`
+function as an input along with the `schema`. For parsing schema, we will use
+`zod`.
+
+For the solution to be valid, the `listener` should **only** accept the
+`handler`s that take the type specified by `schema` as the input. If this is
+not the case, it should be a TypeScript error, not a runtime error.
+
+Based on the requirements above, we know that the `listener` function would
+look something like this:
+
+```typescript
+const listener = (schema, handler) => {/*...*/}
+```
+
+The fun part is to type the function now -- what should be the type of `schema`
+and `handler`? Before doing that, let's familiarise ourselves with `zod` and
+the utilities that it provides.
+
+## Zod 101
+
+[Zod](https://github.com/colinhacks/zod) is a schema definition and object
+parsing library. First, we define a schema using the primitives that `zod`
+provides, and then we can access the `parse` method of the schema, which
+validates the passed-in object and throws a `ZodError` in case parsing fails
+(for those you fear exceptions - I do, in most of the cases - there is a
+`safeParse` method which returns a `{success: true, data: T} | {success: false,
+error: ZodError}`).
+
+The type of the schema is `ZodSchema` most of the time, if you do some
+post-parsing calculations, it will be `ZodEffects`. They have a very good
+utility `infer` to get a plain type from `ZodSchema` and `ZodEffects`. Let's
+get our hands dirty and see some code in action!
+
+```typescript
+import { z } from "zod"
+
+const pageViewEventSchema = z.object({
+  type: z.literal("pageView"),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  additionalInfo: z.optional(z.record(z.string(), z.any()))
+})
+```
+
+The schema definition is very much like the type definition, but with
+additional flexibility to define further validations like `min(1)` (which says
+that the string must be at least of length 1). Using this schema is
+straightforward:
+
+```typescript
+const unparsedOject = {
+  /* This can be anything that comes from outside of the system
+   * For example - user inputs, API call body, messages etc
+   */
+}
+
+try {
+  const pageViewEvent = pageViewEventSchema.parse(unparsedObject)
+  // Now do something with pageViewEventSchema
+} catch (e) {
+  if (e instanceof ZodError) {/* handle the parsing error */}
+}
+```
+
+If you are scared of expectations like me, you can use `safeParse`
+
+```typescript
+const parseResult = pageViewEventSchema.safeParse(unparsedObject)
+if (parseResult.success) {
+  const pageViewEvent = parseResult.data 
+  // Now do something with pageViewEventSchema
+} else {
+  const e = parseResult.error
+  // Handle the parsing error
+}
+```
+
+In both cases, the constant `pageViewEvent` would be of the following type:
+
+```typescript
+{
+  type: "pageView", // Note that this is a literal, not a string
+  title: string,
+  url: string,
+  additionalInfo?: Record<string, any> // Record is a TS-inbuilt type  
+}
+```
+
+To derive the type automatically, we can use `infer` utility:
+
+```typescript
+type PageViewEvent = z.infer<typeof pageViewEventSchema>
+```
+
+Note that the `infer` works for `ZodEffect`s as well. Following is the example
+of an effect, where we set `additonalInfo` to an empty object if we do not
+receive it (i.e., it is `undefined`).
+
+```typescript
+const pageViewEventSchemaWithEffect = z.object({
+  type: z.literal("pageView"),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  additionalInfo: z.optional(z.record(z.string(), z.any()))
+}).transform(
+  // This is executed after the successful parsing with the parsed object as
+input
+  (result) => ({ ...result, additionalInfo: result.additionalInfo || {} })
+);
+
+type PageViewEventWithEffect = z.infer<typeof pageViewEventSchemaWithEffect>
+/*
+{
+  type: "pageView",
+  title: string,
+  url: string,
+  additionalInfo: Record<string, any> // Note that this is no more optional
+}
+*/
+```
+
+Equipped with the knowledge of `ZodSchema`, `ZodEffects` and `infer`, let's try
+to solve the problem at hand:
+
+## Attempt 1
+
+In `const listener = (schema, handler) => {/*...*/}`, we can start typing as
+follows:
+
+- Let's assume that the type `T` is the type we are defining schema for
+- Then, `schema` is of type `ZodSchema<T>` or `ZodEffects<T>`
+- `handler` is a function taking an input `T` to `Promise<boolean>`
+
+```typescript
+import { ZodSchema, ZodEffects } from "zod";
+
+type HandlerFunction<T> = (input: T) => Promise<boolean>
+
+const listener = <T>(schema: ZodSchema<T>|ZodEffects<T>, handler:
+HandlerFunction<T>) => {}
+```
+
+Here is a problem - `ZodEffects<T>` does not accept any `T`. `T` must be a
+subtype of `ZodTypeAny`.
+
+```typescript
+import { ZodSchema, ZodEffects, ZodTypeAny } from "zod";
+
+type HandlerFunction<T> = (input: T) => Promise<boolean>
+
+const listener = <T extends ZodTypeAny>(schema: ZodSchema<T>|ZodEffects<T>,
+handler: HandlerFunction<T>) => {}
+```
+
+With this setup, we can experiment with the following:
+
+- Keep `async message => true` as the second argument. Note that we need
+`async` as `HandlerFunction` is expected to return a `Promise`
+- Try to pass in `pageViewEventSchema` as the first argument, TS complains that
+it does not satisfy `ZodTypeAny`
+- Try to pass in  `pageViewEventSchemaWithEffect` as the first argument, TS
+does not error out. But `message` is not the plain type
+`PageViewEventWithEffect`!
+
+We can go down the path of exploring `zod` internal types to get our work done.
+But there is a good way out by changing our assumption of what `T` should be by
+taking the key fact that `z.infer` accepts both `ZodObject` and `ZodEffects`.
+Let's try that once.
+
+## Attempt 2
+
+In `const listener = (schema, handler) => {/*...*/}`, we type as follows:
+
+- Let's assume that the type `T` is the type of the Zod schema
+- Then, `schema` is of type T
+- `handler` is a function taking an input `z.infer<T>` to `Promise<boolean>`
+
+Let's try to implement it:
+
+```typescript
+type HandlerFunction<T> = (input: T) => Promise<boolean>
+
+const listener = <T>(schema: T, handler: HandlerFunction<z.infer<T>>) => {}
+```
+
+There is a slight problem with this, as `infer` does not work with any `T`, but
+with only `ZodType`s (we get a good TS error explaining this, so we can adapt).
+
+```typescript
+type HandlerFunction<T> = (input: T) => Promise<boolean>
+
+const listener = <T extends ZodType>(schema: T, handler:
+HandlerFunction<z.infer<T>>) => {}
+```
+
+Now, TS is all fine. Let's experiment with the same cases as the previous
+attempt.
+
+- Keep `async message => true` as the second argument. Note that we need
+`async` as `HandlerFunction` is expected to return a `Promise`
+- Try to pass in `pageViewEventSchema` as the first argument. There is no error
+and we can see that the type of the `message` is the same as `PageViewEvent`,
+we get nice autocompletion!
+- Try to pass in  `pageViewEventSchemaWithEffect` as the first argument. There
+is no error and we can see that the type of the `message` is the same as
+`PageViewEventWithEffect`
+
+So, all the test cases passed. We can go a further step ahead and make sure
+that the `listener` function does not take an invalid `schema` and `handler`
+combination as the input - it must be a TS error.
+
+```typescript
+const handler = async (message: PageViewEventWithEffect) => true
+
+listener(pageViewEventSchema, handler)
+```
+
+There is a TS error now, which reads in the end that `Types of property
+'additionalInfo' are incompatible.`, which is indeed the case.
+
+Thus, we have finally solved the `listener` matching the `schema` and `handler`
+types. Let's take a zoomed-out picture of this and recap what we have learnt
+the way.
+
+## Learnings
+
+TS generics is a powerful tool - it can make your life easy or hard depending
+on how to use it. Choosing a generic parameter to parametrize the function when
+the parameters are interdependent is hard - even if making `T` the simple type
+that directly corresponds to the object that we wanted to work with was
+intuitive, it made the problem of deriving the type for another parameter
+harder. With the utility to convert zod schema to a plain type, we were able to
+solve the problem easily. Thus, it is always worth thinking about solving a
+problem from multiple directions!
+
+## How does it help to remove the type boilerplate?!!
+
+In the example that we have seen above, we extracted lots of types and
+sprinkled them everywhere to understand the problem on a deep level. Let's see
+how we can get rid of all the boilerplate and arrive at a much cleaner code.
+
+```typescript
+import { z } from "zod";
+
+// Library
+const queue = {
+  // Dummy queue
+  subscribe: (handler: (message: string) => Promise<void>) => {}
+};
+
+type HandlerFunction<T> = (input: T) => Promise<boolean>;
+
+const listener = <T extends z.ZodType>(
+  schema: T,
+  handler: HandlerFunction<z.infer<T>>
+) => {
+  queue.subscribe(async (message) => {
+    try {
+      const messageData = JSON.parse(message);
+      const parsedMessage = schema.parse(messageData);
+      const result = await handler(parsedMessage);
+      if (!result) {
+        console.error("Handler returned false");
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  });
+};
+
+// Application code
+const pageViewEventSchema = z.object({
+  type: z.literal("pageView"),
+  title: z.string().min(1),
+  url: z.string().min(1),
+  additionalInfo: z.optional(z.record(z.string(), z.any()))
+});
+
+listener(pageViewEventSchema, async (event) => {
+  console.log("Got pageView event")
+  console.log(event.title)
+  console.log(event.url)
+  console.log(event.additionalInfo)
+  return true
+})
+```
+
+While our library code here does pretty much type-lifting, our application code
+is a plain JS code with the added benefits of type checking - who doesn't want
+it at no cost? If you want to type this code manually, it will be very much
+ugly as we need to provide a `zod` type as a generic argument `T`.
+
+## Playground
+
+You can play with these examples at
+https://codesandbox.io/s/admiring-fog-93l6pp?file=/src/clean.ts:0-1016

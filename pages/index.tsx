@@ -37,12 +37,11 @@ export default Home
 export const getStaticProps = async () => {
   const posts = await getMdxFiles('posts', 4)
   const meta = await readMdxFile('meta', 'featuredContent.mdx')
-  const serializedMeta = await serialize(meta.content)
 
   return {
     props: {
       posts,
-      meta: { content: serializedMeta },
+      meta: { content: await serialize(meta.content) },
     },
   }
 }

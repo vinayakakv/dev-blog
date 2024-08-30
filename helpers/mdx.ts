@@ -17,7 +17,7 @@ type MdxFileContent<T extends MdxType> = T extends 'posts' ? Post : Meta
 export async function readMdxFile<T extends MdxType>(
   type: T,
   fileName: string
-): Promise<MdxFileContent<T>> {
+) {
   const filePath = path.join(contentDirectory, type, fileName)
   const fileContents = await fs.promises.readFile(filePath, 'utf8')
   const { data, content } = matter(fileContents)
@@ -28,19 +28,16 @@ export async function readMdxFile<T extends MdxType>(
       ...data,
       slug,
       content,
-    }) as unknown as MdxFileContent<T>
+    }) as MdxFileContent<T>
   } else {
     return metaSchema.parse({
       key: data.key,
       content,
-    }) as unknown as MdxFileContent<T>
+    }) as MdxFileContent<T>
   }
 }
 
-export async function getMdxFiles<T extends MdxType>(
-  type: T,
-  limit?: number
-): Promise<MdxFileContent<T>[]> {
+export async function getMdxFiles<T extends MdxType>(type: T, limit?: number) {
   const files = await fs.promises.readdir(path.join(contentDirectory, type))
   const posts = await Promise.all(
     files.map((fileName) => readMdxFile(type, fileName))

@@ -16,7 +16,9 @@ const CategoryDetailsPage: NextPage<
       <Section
         big
         name={category.title}
-        description={`${posts.length} article(s)`}
+        description={`${posts.length} ${
+          posts.length > 1 ? 'articles' : 'article'
+        }`}
       >
         <BlogGrid posts={posts} />
       </Section>
@@ -34,37 +36,38 @@ export const getStaticProps = async ({
     return { notFound: true }
   }
 
-  const allPosts = await getMdxFiles<'posts'>('posts')
+  const allPosts = await getMdxFiles('posts')
 
-  const posts = allPosts.filter((post) =>
+  const postsInCurrentCategory = allPosts.filter((post) =>
     post.categories.some((category) => category.slug === slug)
   )
 
-  if (posts.length === 0) {
+  if (postsInCurrentCategory.length === 0) {
     return { notFound: true }
   }
 
-  const category = posts[0].categories.find((cat) => cat.slug === slug)!
+  const currentCategory = postsInCurrentCategory[0]!.categories.find(
+    (cat) => cat.slug === slug
+  )!
 
   return {
     props: {
-      category,
-      posts,
+      category: currentCategory,
+      posts: postsInCurrentCategory,
     },
   }
 }
 
 export const getStaticPaths: GetStaticPaths = async () => {
-  const posts = await getMdxFiles<'posts'>('posts')
+  const posts = await getMdxFiles('posts')
 
-  const categorySet = new Set<string>()
-  posts.forEach((post) => {
-    post.categories.forEach((category) => {
-      categorySet.add(category.slug)
-    })
-  })
+  const categorySlugs = [
+    ...new Set(
+      posts.flatMap((post) => post.categories.map((category) => category.slug))
+    ),
+  ]
 
-  const paths = Array.from(categorySet).map((slug) => ({
+  const paths = categorySlugs.map((slug) => ({
     params: { slug },
   }))
 

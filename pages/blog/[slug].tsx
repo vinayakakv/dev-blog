@@ -6,7 +6,6 @@ import type {
 } from 'next'
 import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
-import { Post } from '@schema/post'
 import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
 import { serialize, readMdxFile, getMdxFiles } from '@helpers/mdx'
@@ -72,17 +71,13 @@ export default BlogPost
 export const getStaticProps = async ({
   params,
 }: GetStaticPropsContext<{ slug: string }>) => {
-  const { slug } = params!
-  const post = await readMdxFile('posts', `${slug}.mdx`)
-  const serializedContent = await serialize(post.content)
-  const serializedTldr = await serialize(post.tldr)
-
+  const post = await readMdxFile('posts', `${params!.slug}.mdx`)
   return {
     props: {
       post: {
         ...post,
-        content: serializedContent,
-        tldr: serializedTldr,
+        content: await serialize(post.content),
+        tldr: await serialize(post.tldr),
       },
     },
   }

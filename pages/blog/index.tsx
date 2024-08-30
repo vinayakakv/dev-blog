@@ -38,7 +38,7 @@ const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
 export default Blog
 
 export const getStaticProps = async () => {
-  const posts = await getMdxFiles<'posts'>('posts')
+  const posts = await getMdxFiles('posts')
 
   // Sort posts by date in descending order
   const sortedPosts = posts.sort(

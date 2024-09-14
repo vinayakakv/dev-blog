@@ -49,7 +49,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         />
       </Head>
       <Section big name={title} description={`${description}`}>
-        <p>
+        <p className="text-sm">
           <strong>Published On:</strong> {formatDate(date)}
         </p>
         <TagList tags={categories} />

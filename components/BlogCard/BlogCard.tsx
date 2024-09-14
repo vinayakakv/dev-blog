@@ -14,7 +14,7 @@ export function BlogCard({
   categories,
 }: Props) {
   return (
-    <div className="flex max-w-md flex-col items-stretch justify-between gap-2 bg-gray-800 px-4 py-2 hover:bg-gray-700">
+    <div className="flex max-w-md flex-col items-stretch justify-between gap-2 bg-gray-700 px-4 py-2 hover:bg-gray-600">
       <Link href={slug} className="text-white">
         <h3>{title}</h3>
       </Link>

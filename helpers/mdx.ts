@@ -22,25 +22,31 @@ export async function readMdxFile<T extends MdxType>(
   const fileContents = await fs.promises.readFile(filePath, 'utf8')
   const { data, content } = matter(fileContents)
   const slug = fileName.replace('.mdx', '')
-
-  if (type === 'posts') {
-    return postSchema.parse({
-      ...data,
-      slug,
-      content,
-    }) as MdxFileContent<T>
-  } else {
-    return metaSchema.parse({
-      key: data.key,
-      content,
-    }) as MdxFileContent<T>
+  try {
+    if (type === 'posts') {
+      return postSchema.parse({
+        ...data,
+        slug,
+        content,
+      }) as MdxFileContent<T>
+    } else {
+      return metaSchema.parse({
+        key: data.key,
+        content,
+      }) as MdxFileContent<T>
+    }
+  } catch (e) {
+    console.error({ type, fileName })
+    throw e
   }
 }
 
 export async function getMdxFiles<T extends MdxType>(type: T, limit?: number) {
   const files = await fs.promises.readdir(path.join(contentDirectory, type))
   const posts = await Promise.all(
-    files.map((fileName) => readMdxFile(type, fileName))
+    files
+      .filter((file) => file.endsWith('.mdx'))
+      .map((fileName) => readMdxFile(type, fileName))
   )
   return limit ? posts.slice(0, limit) : posts
 }

@@ -1,0 +1,90 @@
+---
+slug: '1342177289'
+title: '1342177289'
+description: The day when we received a 1GB message on our RabbitMQ (did we?) and how we handled it
+date: '2024-09-14'
+tldr: |
+  - We encountered a service downtime due to hiccups while publishing messages to RabbitMQ
+  - On inspecting logs, we encountered connection closures, with an error saying it received a packet of size 1342177289 bytes, which is more than a GB
+  - Since the message of that size is highly unlikely AND the same number had appeared multiple times in the log, we wondered if that number has any special meaning
+  - A quick Google search revealed that this number came from `AMQP0091` string in the initialization packet, which is never supposed to be sent on an initialized connection
+  - We found out a race condition existed on our retry logic and had to fix it
+  - Along with this, we observed this MQ publishing is significantly taking more resources than expected.
+  - We handle the situation temporarily by adding `HorizontalPodAutoScalar`, while we investigate the issue further
+categories: []
+---
+
+## A Good Morning
+
+One fine day, we woke up to a page at 7AM that one of our non-critical services are returning more 500s than the usual. In fact, 500s constituted more than 50% of the responses, and that's why we were paged. This service ran smoothly for more than a month now, and we had just enabled message publishing in that service last evening. Suspecting this would be the cause, we quickly disabled the functionality by turning a feature flag off and the 500s gradually came down until the alert automatically turned itself off.
+
+Once we were completely awake and caffeinated, we started looking into the logs of the service and a few things stood out:
+
+1. The entries with `level=ERROR` had a spike in the duration of increased 500s. The errors were 502 actually, since the service was quite unavailable during that time.
+2. Those log entries were specifically coming from the MQ client - we use self-hosted RabbitMQ
+3. The logs were repeatedly saying
+   - MQ sending us `ECONNRESET`
+   - Our connection retry mechanism kicking in, and becoming successful sometimes, failing other times
+   - A seemingly crpyic error message - `connection closed: FRAME_ERROR - type 65, all octets = <<>>: {frame_too_large,1342177289,4088} (501)`
+
+Our service is written in NodeJS + TS, and we use [`@cloudamqp/amqp-client`](https://www.npmjs.com/package/@cloudamqp/amqp-client) to communicate with MQ. We subscribe to [`AMQPChannel`](https://cloudamqp.github.io/amqp-client.js/classes/AMQPChannel)'s [`onError`](https://cloudamqp.github.io/amqp-client.js/classes/AMQPChannel.html#onerror) method to kick in our connection retry mechanism. Our retry mechanism is quite raw and simple and does not take of messages that would be sent during the retry window - they would be lost. The retry mechanism keeps track of a counter, and backs off exponentially. Once the retry is successful, the counter is reset and everything is back normal.
+
+While the retry mechanism seemed to work fine in this case (***spoiler**: it wasn't*), which we were happy about, the number `1342177289` worried us. We have configured the maximum message size as `4088` bytes, which is more than sufficient in almost all the cases. What we were seeing instead was a message of around 1GB, which would be close to impossible! I joked that I'm 99.99% confident that 1GB message would not be the case, but left the remaining probability for me to be amused.
+
+We scoured the logs of the service and its historical data and nothing could come to as close as a GB, or even a few 100KBs. Turning back to logs, We noticed that same number `1342177289` was repeated multiple times. It is highly improbable that we get multiple 1GB ish messages with the same byte count - we never retry publishes as well.
+
+Having gone through articles of magic numbers appearing during crashes, I became particularly interested in the number `1342177289` - would it be the case it was a legit packet size and _somehow_ one or more bits got corrupted to become this humongous big number? I started looking into the bits then:
+
+```
+0101 0000 0000 0000 0000 0000 0000 1001
+```
+
+Weird - there are more zeros than ones - yes. But 2 bits at Most Significant side should not haven been set accidentally. Meanwhile, we have pasted the number into Google and [it only brought up results **ONLY** related to RabbitMQ!](https://www.google.com/search?q=1342177289)
+
+## What had happened?
+
+[John Eckersberg makes a good job at explaning what this number means](https://john.eckersberg.com/debugging-rabbitmq-frame_too_large-error.html). To make sense of this number, we need to include `type 65` into the picture as well -- `65` is ASCII `A`. Then there is channel number `19793`, which was not included in this log. These three numbers combined together makes out the string `AMQP` followed by the numbers `009`. For reference, the AMQP init packet expects `AMQP0091` in the header (`0091` being the version and represented as a raw number). We can see parts of it in our number:
+
+```bash
+1342177289
+= 0101 0000 0000 0000 0000 0000 0000 1001
+= 0x50 0x00 0x00 0x09
+= "P" 0 0 9
+```
+
+This means that we were sending initialization packet after the connection was initialized. For reference, here is how our retry looked like:
+
+```ts
+class MqClient {
+  private readonly client: AMQPClient
+  // We keep a single connection
+  private readonly connection: AMQPConnection | null = null
+  private retryCount = 0
+
+  public MqClient(url: string) {
+    this.client = new AMQPClient(url)
+  }
+
+  // Users SHOULD call this
+  public async init() {
+    this.connection = await client.connection()
+    this.connection.onEror(this.retry)
+    this.retryCount = 0
+  }
+
+  private async retry() {
+    this.retryCount += 1
+    // Exponential backoff
+    await sleep(2 ** this.retryCount * 1000 /*ms*/)
+    await this.init()
+  }
+}
+```
+
+While this code looks good at the surface, **if an error happens during retry, since the retry handler is already registered, it is called again - now multiple retry sequence are running concurrently**. And it is entirely possible that a retry happens on already initialized connection - and that's what has happened.
+
+## The Fix
+
+The fix is simple, clear connection and associated handlers before attempting a retry. This is akin how React's `useEffect` wants us to [clean up all the subscriptions, callbacks etc when the component is unmounting](https://react.dev/learn/synchronizing-with-effects#how-to-handle-the-effect-firing-twice-in-development).
+
+However, that's not the end of the story. We observed that MQ connections were being closed when the traffic to our service was mere 20% more than usual. We were running 3 pods in Kubernetes and observed our pods were running over limit on CPU utilization. Scaling them to 16 did bring things back to normal at 100% CPU utilization. We need to further investigate why an act of publishing the message uses up the resources so much. Until then, we plan to use [`HorizontalPodScalar`](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) on CPU utilization to scale up the service on load.

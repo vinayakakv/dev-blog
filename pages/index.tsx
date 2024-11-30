@@ -34,12 +34,14 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
 export default Home
 
 export const getStaticProps = async () => {
-  const posts = await getMdxFiles('posts', 4)
+  const posts = await getMdxFiles('posts')
   const meta = await readMdxFile('meta', 'featuredContent.mdx')
 
   return {
     props: {
-      posts,
+      posts: posts
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 6),
       meta: { content: await serialize(meta.content) },
     },
   }

@@ -4,6 +4,8 @@ import matter from 'gray-matter'
 import { serialize as mdxSerialize } from 'next-mdx-remote/serialize'
 import emoji from 'remark-emoji'
 import smartypants from 'remark-smartypants'
+import math from 'remark-math'
+import katex from 'rehype-katex'
 import prism from 'remark-prism'
 import { Post, postSchema } from '@schema/post'
 import { Meta, metaSchema } from '@schema/meta'
@@ -54,6 +56,7 @@ export async function getMdxFiles<T extends MdxType>(type: T, limit?: number) {
 export const serialize = async (mdx: string) =>
   mdxSerialize(mdx, {
     mdxOptions: {
-      remarkPlugins: [emoji, smartypants, prism],
+      remarkPlugins: [math, emoji, smartypants, prism],
+      rehypePlugins: [katex as any],
     },
   })

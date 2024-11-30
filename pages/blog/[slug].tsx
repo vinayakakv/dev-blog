@@ -13,6 +13,7 @@ import Head from 'next/head'
 import { formatDate } from '@utils'
 import { MDXComponents } from '@components/MDXComponents'
 import { ArticleJsonLd, DefaultSeo } from 'next-seo'
+import 'katex/dist/katex.min.css'
 
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,

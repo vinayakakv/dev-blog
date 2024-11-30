@@ -12,7 +12,7 @@ html {
 }
 
 body {
-  @apply bg-gray-800 font-mono text-green-200 font-light;
+  @apply bg-gray-800 font-mono font-light text-green-200;
 }
 
 #__next {

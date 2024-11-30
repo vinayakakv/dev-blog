@@ -1,5 +1,4 @@
 import type { InferGetStaticPropsType, NextPage } from 'next'
-import { BlogCard } from '@components/BlogCard'
 import { Hero } from '@components/Hero'
 import { Link } from '@components/Link'
 import { Section } from '@components/Section'

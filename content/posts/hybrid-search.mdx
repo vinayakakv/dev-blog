@@ -1,0 +1,131 @@
+---
+slug: hybrid-serch
+title: 'Building a Search Engine'
+description: 'Techology choices that we can make while building a conversational, multimodal search experience'
+date: '2024-11-30'
+tldr: |
+  - In this article, we explored how to build a conversational, multimodal, and personalized search experience.
+  - We examined various choices of LLMs and the key factors to consider when selecting one.
+  - We discussed data preparation techniques, such as embeddings, and how to store and retrieve embedding data.
+  - We also explored backend and frontend technologies suited for building search experiences.
+  - Since we have multiple scores in the search, we employed rank fusion techniques to arrive at a single score for ranking search results.
+  - We briefly touched upon the maintenance of this system and the feedback loop.
+
+categories: []
+---
+
+Search has become an integral part of our daily lives. With major players like Google and Bing, as well as mission-oriented options like [Ecosia](https://www.ecosia.org/) and [DuckDuckGo](https://duckduckgo.com/), a variety of search engines have tackled the challenge of navigating the vast expanse of the internet.
+
+However, these search engines cannot solve the search problem on a smaller, customizable dataset, such as an e-commerce catalog. In such cases, we have access to product and user data. This data can be used to derive personalized search results. In this article, we shall explore the technology choices we can make when building a multi-modal, conversational search experience.
+
+## Conversational Search
+
+Traditionally, search is thought of as typing something into a text box and expecting results. Several applications have [invented their own query languages](https://rachit.pl/post/you-have-built-a-compiler/) to enhance the capabilities of what cannot be achieved with a full-text search. The rise of LLMs has promoted search experiences like [Perplexity.AI](https://perplexity.ai) (recently, OpenAI also released their own version), which can tolerate imprecise inputs and provide context that encourages natural exploration.
+
+The APIs of these LLMs are now capable of [Function Calling](https://platform.openai.com/docs/guides/function-calling), which allows us to expose custom business APIs to the LLMs and provide a complete in-chat experience.
+
+## Multimodal Search
+
+Words are never sufficient to explain something, which is where adding an image input into the mix can vastly enhance UX and reduce frustration. We can take it a step further by using [live audio and video capabilities](https://openai.com/index/hello-gpt-4o/) to remove text input completely from the equation. For the sake of this discussion, we are limiting ourselves to image inputs only.
+
+## Technology Choices
+
+Based on our requirements above, we have a few technology choices to make:
+
+- Which LLM and LLM provider to use to power the conversational interface?
+- How do we make our data accessible for multimodal search?
+- What backend and UI frameworks to use?
+
+### LLM Provider and APIs
+
+We have a lot of choices for LLM providers in today's market:
+
+- **Giants like [OpenAI](https://openai.com/api/pricing/), [Anthropic](https://www.anthropic.com/pricing), and [Gemini](https://ai.google.dev/pricing)**: These are the big players in the market and offer a variety of models to choose from. Since they operate at a large scale, their costs tend to be lower for low-volume applications. Gemini recently started [providing OpenAI-compatible APIs](https://ai.google.dev/gemini-api/docs/openai), making it easy to switch between providers.
+- **Self-hosted models like LLaMa and Qwen**: Many open-weight (and some open-source) models are available on Hugging Face. You can evaluate, fine-tune, and self-host them. For self-hosting, since we need GPU VMs, the added cost and maintenance factors only make sense if you have a high load.
+- **Open models on third-party hosting**: There are many third-party LLM hosting solutions, including Hugging Face, which offer competitive pricing and API compatibility options. They are a perfect tradeoff between giants and self-hosting.
+
+> **A note on interoperability**: While OpenAI-compatible APIs and libraries like Vercel's AI SDK can make it seem like switching between LLMs is easy, it often isn't. I've seen GPT-3.5 and GPT-4 behave vastly differently on the same prompt. This might be due to the way the models are trained and fine-tuned. But this is definitely something to watch out for.
+
+We can use the following generic criteria to choose the LLM and provider best suited for our task at hand:
+
+- **Streaming vs Non-Streaming APIs**: LLMs are essentially next-word prediction models. Some APIs generate an entire paragraph as a response, while others return a streaming output. For an interactive experience, streaming output tends to provide better UX, as users do not feel stuck.
+- **Context Window Size**: An LLM's ability to reference past text is limited by the length of its context window. If an LLM has a small context window, it might forget what the user said at the beginning, leading to frustration. We also need to consider dropping unimportant messages from the context window once it is full.
+- **Speed**: LLM token-generation speed can vary based on its size and the infrastructure it is hosted on. The faster the LLM, the better the experience. However, overly fast LLMs can cause a flickering UI that may artificially need to be slowed down. Since our custom function calls also add delay, a fast model suits our purpose.
+- **Modality**: Some LLMs are text-based, while others are multi-modal. While our image search use case works better with multi-modal LLMs (if they can understand the image and generate text input with an accurate description), text-based models can also be used—with image search being a separate pipeline.
+- **Visibility**: It is important to understand how LLMs behave when they are running in the real world. While one can build a monitoring solution to review random chats, out-of-the-box solutions like [OpenAI Threads](https://platform.openai.com/docs/api-reference/threads) can be very helpful.
+
+### Data Preparation and Storage
+
+We need to make our product data accessible for both natural language and image search. For this task, we can leverage multimodal embeddings such as [CLIP](https://huggingface.co/docs/transformers/en/model_doc/clip) to generate text and image embeddings, which can then be used during the search.
+
+There are many vector databases like [Milvus](https://milvus.io/) and [Qdrant](https://qdrant.tech/) that tackle the problem of returning the nearest vector given an input vector. Since we also want our search to include conventional filters (such as product category, age group, etc.), a plain vector database will not suit our use case. We are addressing the Hybrid Search problem, where both vector search and conventional search are used together. Fortunately, many conventional databases now offer vector search extensions:
+
+- **Postgres with [pgvector](https://github.com/pgvector/pgvector)**: If you already have your main business data in Postgres, pgvector is an easy choice.
+- **Purpose-built Hybrid search databases like [MyScale](https://myscale.com/)**: MyScale is a Clickhouse fork that adds vector indexing and vector search functionality. They also support native functions for full-text search.
+- Almost every database now ships with vector functions and vector indexing.
+
+We can evaluate the database choices using a few key points:
+
+- **Online vs Offline Indexing**: Can our vector index support real-time insertions and updates, or do we need to run reindex operations periodically? While running a massive indexing operation may seem easy at first, it can quickly become unmanageable as data volume increases. Online indexing is always better if you have constantly changing or growing data.
+- **Vector Functions**: We are focused on _distance_ functions that return how similar two input vectors are. These functions can either be used in the `ORDER BY` clause to get the nearest matches, or in the `WHERE` clause to filter the dataset into records of interest. What distance functions a database supports and how it limits their usage is an important factor. For example, a database that supports distance functions only in the `ORDER BY` clause is limited in that it can only strictly select a subset of the data where the distance to the source vector is greater than `0.8`.
+- **Speed**: Since our search is conversational and the database queries are invoked by the LLM (which has its own delays), we need to ensure that data retrieval is fast.
+- **In-database Embedding Functions**: Some databases offer functions that allow the caller to specify an embedding model and the input in order to generate the embeddings. While this eliminates the need for the application to generate query embeddings, it can potentially lead to inaccuracies if the embedding model for query embedding and data embedding are different.
+- **Ease of Data Migration**: If the primary business database and the search database are different, we need to consider whether the original database supports Change Data Capture (CDC) events, which can be used to detect changes and insert them into the search database with embeddings computed. Otherwise, a periodic data sync job might be a good option.
+
+### Backend and UI frameworks
+
+Python is the go-to language for all ML-related activities due to the abundance of ML libraries and plug-and-play models, thanks to [Hugging Face Pipelines](https://huggingface.co/docs/transformers/en/main_classes/pipelines). [LangChain](https://www.langchain.com/) also provides primitives and extensions to wrap around LLMs, but it comes with a [reputation for being unnecessarily complex](https://minimaxir.com/2023/07/langchain-problem/).
+
+On the other side, JavaScript is catching up with the state of things with ML libraries like [TensorFlow.js](https://www.tensorflow.org/js) and [Xenova's port of Hugging Face pipeline](https://www.npmjs.com/package/@xenova/transformers). Vercel's AI SDK ([`npm i ai`](https://www.npmjs.com/package/ai)) is also a zero-cost abstraction over multiple LLM providers, offering both backend streaming patterns and frontend hooks for popular frameworks like React, Svelte, and Vue.
+
+At the end of the day, technology choices should be made to provide the best user experience, with frictionless developer experience coming second.
+
+## The Hybrid Search
+
+Now that you’ve made technology choices, prepared the data, stored it, and are ready to take user input, let's say the user is querying for "Shirts to wear for a Hawaii vacation." The LLM, detecting the user's intent, responds with a message indicating that the user should wait while it searches for those shirts, and invokes our `find` function with the following parameters:
+
+- `category=shirt`
+- `tags=['vacation']`
+- `query='casual, breathable shirt for vacation in Hawaii'`
+
+Now, based on the context in the request (possibly from a cookie), we know the user ID, which allows us to infer:
+
+- `gender=Male`
+- `pastPurchases=[...]`
+
+We can generate a text embedding and query the product database as follows:
+
+```sql
+select title, price, image_url, distance(embedding, queryEmbedding) as distance
+from products
+where gender = 'male'
+  and category = 'shirts'
+  and tags in ('vacation')
+order by distance desc
+limit 100
+```
+
+Let’s also assume that we have two additional scoring algorithms:
+
+- `imageSimilarity(input_image, target)` that returns how similar the user input image is to a given image.
+- `likelihood(pastPurchases, product)` that returns how likely a given product is to be purchased based on past transactions.
+
+Running these functions on our DB results, we end up with three scores for each of the filtered products. We need to combine these scores and re-rank the results to show the most appropriate results for the user. Although these scores are numerical and might fall within the same range, they cannot be combined arithmetically since they come from different sources and have different meanings. For example, a likelihood score of `0.5` is vastly different from an embedding distance of `0.5`. Even among different embedding algorithms, the same score can represent different levels of similarity.
+
+### Rank Fusion
+
+In order to solve this problem, we need to convert these scores to have the same meaning. Converting _scores_ to _ranks_ is a common method employed in these scenarios. We order our dataset by these scores so that the nearest entry appears first, and then take the position of the entry as its rank. In our example, we will create three sets of products ordered by embedding distance, image similarity, and likelihood, respectively.
+
+For every product in the set, we can now assign a score as follows:
+
+$$
+\mathrm{score} = \sum_{i \in \mathrm{Rankset}} \frac{w_i}{b_i + \mathrm{rank}}
+$$
+
+This expression gives more weight to the highest ranks, while giving rapidly decreasing weights to later ranks. The constant $b_i$ dampens the effect of early ranks contributing more weight, whereas the constant $w_i$ acts as the weight for the rank set. These constants have to be set according to the business requirements. This technique is called [**Reciprocal Rank Fusion**](https://learn.microsoft.com/en-us/azure/search/hybrid-search-ranking) and is one of the basic techniques to combine ranks. There are other more sophisticated methods that can take user feedback into consideration as well.
+
+After the rank fusion, we get a score for each product that we can use to sort the product set and present it to the user. This product set is obtained based on both regular and multimodal search inputs, along with the personalization factor added in, thus enhancing the UX.
+
+## Feedback loop and Maintenance
+
+No system will be perfect on day one. We need to keep an eye on our conversational search experience and measure its impact, for example, using conversion metrics. We can also gather explicit user feedback by asking them to vote on LLM responses and recommendations. Additionally, we should monitor for possible abuse of the conversational experience and detect attacks or jailbreaks by randomly auditing PII-removed user interactions.

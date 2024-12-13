@@ -12,8 +12,6 @@ tldr: |
 categories: []
 ---
 
-# Operators Overloaded
-
 Operators are a fundamental part of a programming language. They allow expressing expressions, mathematical or otherwise, elegantly and reduce the cognitive burden on the reader. Some programming languages take the concept of operators one step further and allow them to have different meanings depending on the context in which they are used, making them even more powerful. This approach is popularly known as "**Operator Overloading**." As with many things in software engineering, any flexibility comes with its own set of trade-offs. In this article, we will explore a few cases where operator overloading can be helpful or problematic.
 
 ## The Ways of Operator Overloading
@@ -55,7 +53,7 @@ int main() {
 
 Apart from the `operator+` function, we also see the `<<` operator used for stream output, which can also be used for bit shifts. The arrow operator `->` is used for pointer member access (i.e., `a->b` and `(*a).b` are equivalent) since `this` is a pointer. C++ allows all of these operators to be overloaded as well, but it does not allow changing their precedence.
 
-Other languages like Python and Kotlin require the implementation of special methods as part of the class in order for them to be exposed as operators. For example, we can achieve the above result in Kotlin [as](https://pl.kotl.in/XkrlBsH0F):
+Other languages like Python and Kotlin require the implementation of special methods as part of the class in order for them to be exposed as operators. For example, we can achieve the above result in [Kotlin](https://pl.kotl.in/XkrlBsH0F):
 
 ```kotlin
 data class Complex(val real: Double, val imaginary: Double) {
@@ -82,11 +80,18 @@ The set of operators offered by some programming languages is not limited to ari
 std:cout << "Hello world!" << std::endl;
 ```
 
-While this approach looks okay to begin with, string formatting becomes increasingly complex. Compare that with plain old `printf`:
+While this approach looks okay to begin with, string formatting becomes increasingly complex.
+```cpp
+std:cout << "Hello world! I am a number" << num << std::endl;
+```
+
+Compare that with plain old `printf`:
 
 ```c
 printf("Hello world! I'm a number %d\n", 10)
 ```
+
+The `format` function used in the first example also better.
 
 The Spray router in Scala (deprecated) takes operator overloading to another extreme and uses a bash of operators to [define HTTP server routes](https://spray.readthedocs.io/en/latest/documentation/spray-routing/):
 
@@ -109,7 +114,7 @@ trait LongerService extends HttpService with MyApp {
       pathEnd {
         (put | parameter('method ! "put")) {
            // ...
-        } ~
+        }
       }
     }
   }
@@ -134,6 +139,7 @@ main :: IO ()
 main = do
   let result = [1,2] >>= duplicate
   print result
+  -- [1,1,2,2]
 ```
 
 Monads are an interesting concept and are subject to lots of [memes](https://antousias.com/content/images/2020/11/44b0bd758f8ee5c81362923f0d5c8e017c9ddf623925e60c29a4c015b89fbb45.jpg). I hope to explore them from a mathematical perspective one day.
@@ -189,8 +195,6 @@ console.log(p.toString())
 The answer is subjective: the Python version follows the mathematical structure and preserves its pattern, while the JavaScript version adds verbosity but makes the operation linear.
 
 In fact, there is more than one way to convert a mathematical expression to a function-chaining format. This way, the programmer can explicitly choose the order of operations, as opposed to relying on precedence and grouping to decide for us. The chain explicitly spells out the computation graph.
-
----
 
 ### So, is operator overloading good or bad?
 

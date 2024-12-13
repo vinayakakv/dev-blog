@@ -1,0 +1,199 @@
+---
+slug: operators-overloaded
+title: 'Operators Overloaded'
+description: 'When an operator can have multiple meanings based on the context...'
+date: '2024-12-13'
+tldr: |
+  - In this article, we explore the concept of operator overloading, where an operator can behave differently in different contexts.
+  - We look into how operator overloading is achieved in various programming languages.
+  - We also examine how operator overloading can be used outside of arithmetic operators and how it can sometimes lead to esoteric patterns.
+  - We then look at patterns in programming languages that do not use operator overloading and see how a computation graph can emerge naturally with chainable APIs.
+  - We end the discussion with a note on the flexibility of operator overloading and some unintended consequences of its use.
+categories: []
+---
+
+# Operators Overloaded
+
+perators are a fundamental part of a programming language. They allow expressing expressions, mathematical or otherwise, elegantly and reduce the cognitive burden on the reader. Some programming languages take the concept of operators one step further and allow them to have different meanings depending on the context in which they are used, making them even more powerful. This approach is popularly known as "**Operator Overloading**." As with many things in software engineering, any flexibility comes with its own set of trade-offs. In this article, we will explore a few cases where operator overloading can be helpful or problematic.
+
+## The Ways of Operator Overloading
+
+Every language has its own way of defining operator overloads. I was introduced to the concept in C++ while following the book by [Daniel Liang](https://www.amazon.in/C-Programming-Language-Y-Daniel-Liang/s?rh=n%3A14447041031%2Cp_27%3AY.+Daniel+Liang). In C++, operators are special functions whose names begin with the keyword `operator`. For example, an addition operation for complex numbers can look like this:
+
+```cpp
+// test.cpp
+// compile with `clang++ -std=c++20 test.cpp`
+#include <iostream>
+
+#include <format>
+
+using namespace std;
+
+class Complex {
+  private: float real, imaginary;
+
+  public: Complex(float real, float imaginary) {
+    this -> real = real;
+    this -> imaginary = imaginary;
+  }
+
+  Complex operator + (Complex & another) {
+    return Complex(this -> real + another.real, this -> imaginary + another.imaginary);
+  }
+
+  string toString() {
+    return format("{} + {} i", this -> real, this -> imaginary);
+  }
+};
+
+int main() {
+  Complex c1(2, 3), c2(1, 0);
+  Complex c3 = c1 + c2; // This works
+  cout << c3.toString() << endl; // 3 + 3 i
+}
+```
+
+Apart from the `operator+` function, we also see the `<<` operator used for stream output, which can also be used for bit shifts. The arrow operator `->` is used for pointer member access (i.e., `a->b` and `(*a).b` are equivalent) since `this` is a pointer. C++ allows all of these operators to be overloaded as well, but it does not allow changing their precedence.
+
+Other languages like Python and Kotlin require the implementation of special methods as part of the class in order for them to be exposed as operators. For example, we can achieve the above result in Kotlin [as](https://pl.kotl.in/XkrlBsH0F):
+
+```kotlin
+data class Complex(val real: Double, val imaginary: Double) {
+  operator fun plus(other: Complex): Complex {
+    return Complex(this.real + other.real, this.imaginary + other.imaginary)
+  }
+}
+
+fun main() {
+  val c1 = Complex(2.0,3.0)
+  val c2 = Complex(1.0,0.0)
+  val c3 = c1 + c2
+  println(c3)
+}
+```
+
+As we can see from the above examples, operator overloading makes the interface (API, if you will) of the class more _natural_, and the expressions more readable, making them feel closer to the way we write mathematical expressions. When the mathematical concept of arithmetic makes sense, for example, [Group theory](<https://en.wikipedia.org/wiki/Group_(mathematics)>), operator overloading can be particularly useful.
+
+## Beyond Arithmatic
+
+The set of operators offered by some programming languages is not limited to arithmetic operators. It includes bitwise operators and beyond. C++ is famous for using shift operators with streams.
+
+```cpp
+std:cout << "Hello world!" << std::endl;
+```
+
+While this approach looks okay to begin with, string formatting becomes increasingly complex. Compare that with plain old `printf`:
+
+```c
+printf("Hello world! I'm a number %d\n", 10)
+```
+
+The Spray router in Scala (deprecated) takes operator overloading to another extreme and uses a bash of operators to [define HTTP server routes](https://spray.readthedocs.io/en/latest/documentation/spray-routing/):
+
+```scala
+trait LongerService extends HttpService with MyApp {
+  val route = {
+    path("orders") {
+      authenticate(BasicAuth(realm = "admin area")) { user =>
+        get {
+          cache(simpleCache) {
+            encodeResponse(Deflate) {
+              complete {
+                // ...
+              }
+            }
+          }
+        } ~
+    } ~
+    pathPrefix("order" / IntNumber) { orderId =>
+      pathEnd {
+        (put | parameter('method ! "put")) {
+           // ...
+        } ~
+      }
+    }
+  }
+ }
+}
+```
+
+Actor-based programming languages like Erlang support a dedicated operator `!` to send a message to an actor:
+
+```erlang
+%send message Message to the process with pid Pid
+Pid ! Message
+```
+
+Haskell uses a dedicated operator `>>=` for the Monad `flatMap` operation. For [example](https://play.haskell.org/saved/lvSs9d56):
+
+```haskell
+duplicate:: a -> [a]
+duplicate input = [input, input]
+
+main :: IO ()
+main = do
+  let result = [1,2] >>= duplicate
+  print result
+```
+
+Monads are an interesting concept and are subject to lots of [memes](https://antousias.com/content/images/2020/11/44b0bd758f8ee5c81362923f0d5c8e017c9ddf623925e60c29a4c015b89fbb45.jpg). I hope to explore them from a mathematical perspective one day.
+
+In all these examples, operators are used to express domain-specific concepts, which might take some time to get used to. In the Spray router example, it is likely to scare a first-time viewer!
+
+## No Operator Overloading
+
+Many languages do not support operator overloading, including Java and JavaScript. In these languages, libraries expose methods instead of operators. For example, let's consider calculating the likelihood of sample data under a normal distribution $\mathcal{N}(\mu, \sigma)$. Mathematically,
+
+$$
+p = \frac{1}{\sqrt{2\pi\sigma^2}}e^{-\frac{(x-\mu)^2}{2\sigma^2}}
+$$
+
+A python program written with `numpy` can look like:
+
+```python
+import numpy as np
+
+mu = 1
+sigma = 0.5
+x = np.array([0, -2, 1, 2.5, 3])
+
+p = 1 / (np.sqrt(2 * np.pi * sigma ** 2)) * np.exp(-(x - mu) ** 2 / (2 * sigma ** 2))
+
+print(p)
+# [0.10798193, 0.00000001, 0.79788456, 0.0088637 , 0.00026766]
+```
+
+If we were to write the same expression in NodeJS with Tensorflow.JS (there are not much tensor libraries for JS, a topic for another day):
+
+```ts
+import tf from '@tensorflow/tfjs-node'
+
+const mu = 1
+const sigma = 0.5
+
+const x = tf.tensor1d([0, -2, 1, 2.5, 3])
+const p = x
+  .sub(mu)
+  .pow(2)
+  .mul(-1)
+  .div(2 * sigma ** 2)
+  .exp()
+  .div(tf.sqrt(2 * Math.PI * sigma ** 2))
+
+console.log(p.toString())
+// [0.1079819, 0, 0.7978846, 0.0088637, 0.0002677]
+```
+
+### Which one of these is better?
+
+The answer is subjective: the Python version follows the mathematical structure and preserves its pattern, while the JavaScript version adds verbosity but makes the operation linear.
+
+In fact, there is more than one way to convert a mathematical expression to a function-chaining format. This way, the programmer can explicitly choose the order of operations, as opposed to relying on precedence and grouping to decide for us. The chain explicitly spells out the computation graph.
+
+---
+
+### So, is operator overloading good or bad?
+
+As always, it depends. Operator overloading is one of the powerful tools that make a programmer’s life easier. However, it has the potential to be misused, creating esoteric and often unergonomic patterns. When used in the right places, it’s more beneficial than harmful.
+
+On the other hand, the unavailability of operator overloading forces library developers to expose chainable interfaces, which naturally lead into computation graphs—though at the cost of readability.

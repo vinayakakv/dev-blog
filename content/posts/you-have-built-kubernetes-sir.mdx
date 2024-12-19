@@ -1,7 +1,7 @@
 ---
 slug: dear-sir-you-have-built-kubernetes
 title: Dear Sir, You Have Built Kubernetes
-description: A tale of how a simple deployment script turned into a monstor that could rivial kubernetes
+description: A tale of how a simple deployment script turned into a monster that could rival Kubernetes.
 date: '2024-12-19'
 tldr: |
   - We explore the story of a fictitious organization and the evolution of their deployment lifecycle.
@@ -39,9 +39,9 @@ Nice! At least now you can sleep without interruptions.
 
 ## Growth Brings New Challenges
 
-More growth is always good news since it brings in more revenue. Confident that the system you’ve built can be easily scaled to handle new traffic, you decide to add two more groups. However, as soon as the new groups are added, a database alert fires—its CPU utilization is way too high.
+More growth is always good news since it brings in more revenue. Confident that the system you’ve built can be easily scaled to handle new traffic, you decide to add two more groups. However, as soon as the new groups are added, a database alert — its CPU utilization is way too high.
 
-The architecture you designed is horizontally scalable, yes—but your poor PostgreSQL instance is not. To address this issue, you decide to take the following steps:
+The architecture you designed is horizontally scalable, yes — but your poor PostgreSQL instance is not. To address this issue, you decide to take the following steps:
 
 1. Vertically scale the PostgreSQL instance for now, or better yet, enable the cloud provider’s autoscaling feature.
 2. Move business-critical objects to a horizontally scalable NoSQL database, such as MongoDB.
@@ -57,18 +57,18 @@ However, not everything is shiny in the world of microservices. To sync certain 
 
 To deploy these microservices, you provision a VM for each one and scale it based on its needs. Naturally, your `Deploy` job requires updates—along with managing _groups_, you now need to handle each microservice individually. Taking the time to address this, you parameterize the job to accept the microservice as an input while carefully accounting for the rolling deployment process.
 
-At this stage, `deploylib`—your set of shell scripts for automating deployment—is growing significantly. It now includes the deployment logic, microservice configurations, and more, all centralized in one place.
+At this stage, `deploylib`—your set of shell scripts for automating deployment — is growing significantly. It now includes the deployment logic, microservice configurations, and more, all centralized in one place.
 
 ## Welcome, Kubernetes!
 
-While you have automated most of the deployment setup, it’s still not completely free from human intervention. Services occasionally fail in the middle of the night, despite running the `Deploy` job every 12 hours. The job has grown so complex that it sometimes catastrophically fails, leaving the system in a half-new, half-old state.
+While you have automated most of the deployment setup, it’s still not completely free from human intervention. Services occasionally fail in the middle of the night, despite running the `Deploy` job every 12 hours now. The job has grown so complex that it sometimes catastrophically fails, leaving the system in a half-new, half-old state.
 
 You decide to migrate the applications to Kubernetes (k8s) to take advantage of its automated recovery and autoscaling functionalities. While the microservices you’ve built should theoretically be easy to containerize, several challenges arise due to the way the apps were architected:
 
 - The application runtime doesn’t work well in containers, as it relies on direct access to hardware resources.
 - The build step generates numerous artifacts, requiring careful orchestration to produce a container image.
-- You need to maintain backward compatibility—apps migrated to k8s must still be able to communicate with apps outside of it, and vice versa.
-- The apps have a significant startup time because they load all application-critical data from the database into an in-memory cache layer to meet SLA requirements. The database itself is slow, as it is highly normalized and requires around 17 joins for even simple queries!
+- You need to maintain backward compatibility — apps migrated to k8s must still be able to communicate with apps outside of it, and vice versa.
+- The apps have a significant startup time because they load all application-critical data from the database into an in-memory cache layer to meet SLA requirements. The database access itself is slow, as it is highly normalized and requires around 17 joins for even simple queries!
 
 While these challenges are addressable, you still have an affection for your `deploylib` framework and decide to repurpose it for gradually deploying new k8s apps. By leveraging a combination of tools such as `envsubst`, `kubectl apply -f`, `kubectl wait`, `kubectl get`, and others, you integrate k8s deployments into `deploylib`.
 
@@ -76,9 +76,9 @@ Although Kubernetes offers native rolling deployments, your architecture require
 
 ## Was it Really Needed?
 
-Yes, the circumstances of the time demanded it, and you believed a simple set of deploy scripts would make life easier. However, over time, `deploylib` evolved into a [36k+ LOC shell script monster](https://bsky.app/profile/kelseyhightower.com/post/3l7m23hnv242k), with utilities written for almost everything. Even after Kubernetes was introduced, you stuck with the framework due to business requirements for making deployments _fast_. Ironically, the work ultimately slowed down because `deploylib` became a bottleneck that tied you up!
+Yes, the circumstances of the time demanded it, and you believed a simple set of deploy scripts would make life easier. However, over time, `deploylib` evolved into a [36k+ LOC shell script monster](https://bsky.app/profile/kelseyhightower.com/post/3l7m23hnv242k), with utilities written for almost everything. Even after Kubernetes was introduced, you stuck with the framework due to business requirements for making the migration _fast_. Ironically, the work ultimately slowed down because `deploylib` became a bottleneck that tied you up!
 
-Modern GitOps-based Kubernetes deployment tools like [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) and [FluxCD](https://fluxcd.io/) can greatly simplify the deployment process. Additionally, tools like [external-dns](https://kubernetes-sigs.github.io/external-dns/v0.14.0/) and [`external-secrets`](https://external-secrets.io/latest/) can make Kubernetes deployments fully self-service, eliminating the need for a dedicated ops person.
+Modern GitOps-based Kubernetes deployment tools like [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) and [FluxCD](https://fluxcd.io/) can greatly simplify the deployment process. Additionally, tools like [external-dns](https://kubernetes-sigs.github.io/external-dns/v0.14.0/) and [external-secrets](https://external-secrets.io/latest/) can make Kubernetes deployments fully self-service, eliminating the need for a dedicated ops person.
 
 After careful technical consideration and review, you decide to adapt these modern tools and finally retire `deploylib`, hoping that this new system doesn’t turn into the next `deploylib`.
 

@@ -1,0 +1,97 @@
+---
+slug: dear-sir-you-have-built-kubernetes
+title: Dear Sir, You Have Built Kubernetes
+description: A tale of how a simple deployment script turned into a monster that could rival Kubernetes.
+date: '2024-12-19'
+tldr: |
+  - We explore the story of a fictitious organization and the evolution of their deployment lifecycle.
+  - It begins with deployments on bare-metal VMs.
+  - As traffic increases, the need for horizontal scaling and load balancing arises.
+  - A `deploylib` framework is created to simplify deployment across multiple VMs. Soon, a `Deploy` job is introduced to manage rolling deployments.
+  - Eventually, the `Deploy` job runs daily instead of only during deployments, primarily to restart apps that might become unstable if left running for too long.
+  - `deploylib` undergoes another major revamp when the organization decides to break their monolith into microservices, making the framework even more complex.
+  - Over time, Kubernetes (k8s) emerges, offering solutions like rolling deployments and automatic pod restarts based on health checks. However, the existing microservices are difficult to containerize due to assumptions about their runtime environment. Despite these challenges, once containerized, k8s deployments are patched into `deploylib`. What was expected to be a smooth migration takes significantly longer than planned.
+  - Eventually, `deploylib` is set to retire as the team transitions to GitOps-based Kubernetes deployment tools like ArgoCD and Flux.
+  - In retrospect, Bash was not an ideal language for a large deployment project, though it served well in the beginning when the project was smaller.
+---
+
+It is the early 2010s, and you have a bunch of Java applications to deploy. There are good servers like [Tomcat](https://tomcat.apache.org/) and [Jetty](https://jetty.org/index.html). You procure a VM in the cloud, set up the OS and servers, deploy the application, and expose it to the public. All is good, until...
+
+## There is More Traffic!!
+
+Congrats! You have grown your customer base, and your application is experiencing traffic that cannot be handled by a single VM. Now, you decide to horizontally scale the system by adding more VMs. You do not want to keep writing the same commands to configure and deploy applications to every machine, so you decide to write a bunch of Ansible and Shell scripts to handle these tasks for you. Thus, `deploylib` is born.
+
+Now, you don't want to be running these scripts from your machine and want to give control back to the developers. So, you also create a Jenkins VM with appropriate permissions, write a `Deploy` job with suitable parameters that `ssh`es into every machine and handles the deployment. Cool, we’ve solved the problem, right? Not quite yet...
+
+## Rolling Deployment
+
+During a deployment, you don’t want all machines to go down together when updating to a new version of the application. You want the process to happen in groups so that you can abort the deployment if you notice anything going wrong in the earlier groups. To achieve this, you logically define the groups, update your `deploylib` to handle it, and break the `Deploy` job into phases to ensure everything runs smoothly.
+
+Whenever there is a new version of the application, you run the `Deploy` job, and the apps go to production _automagically_ with no downtime. A phenomenal achievement! But one day, you wake up to a midnight page that one of the production-critical applications is down...
+
+## Hanged State Machines
+
+The particular version of the app was running smoothly in production for 15 days—until it decided not to. You check the application logs, run `htop`, and observe that there is a memory leak. The engineering team is busy with other business priorities, and fixing the memory leak is not one of them. Memory leaks, after all, require dedicated effort to identify and fix.
+
+A bright engineer comes up with a workaround — just restart the applications every day, but outside business hours! All applications are essentially giant state machines, and a restart is often an easy way to fix them, as they return to their initial state upon restarting. Since deployments already restart the apps, you configure Jenkins to schedule the `Deploy` job daily, using the last deployed version.
+
+Nice! At least now you can sleep without interruptions.
+
+## Growth Brings New Challenges
+
+More growth is always good news since it brings in more revenue. Confident that the system you’ve built can be easily scaled to handle new traffic, you decide to add two more groups. However, as soon as the new groups are added, a database alert — its CPU utilization is way too high.
+
+The architecture you designed is horizontally scalable, yes — but your poor PostgreSQL instance is not. To address this issue, you decide to take the following steps:
+
+1. Vertically scale the PostgreSQL instance for now, or better yet, enable the cloud provider’s autoscaling feature.
+2. Move business-critical objects to a horizontally scalable NoSQL database, such as MongoDB.
+3. Break down your monolith into microservices, with each microservice owning its own database, ensuring non-critical apps don’t interfere with critical ones.
+
+All great! You implement #1 immediately. Points #2 and #3 take some time, but they are eventually completed.
+
+## Microservice Heaven
+
+You split your monolith app into multiple microservices, carefully defining the responsibilities of each microservice and exposing APIs to facilitate communication between them. To handle asynchronous communication, you deploy a message broker. Each microservice now has its own database, and fortunately, one or two production-critical microservices receive the most database resources.
+
+However, not everything is shiny in the world of microservices. To sync certain business _facts_ across them, you end up with some data duplication. You decide this is a worthwhile tradeoff for the functionality it brings—after all, every engineering decision involves tradeoffs.
+
+To deploy these microservices, you provision a VM for each one and scale it based on its needs. Naturally, your `Deploy` job requires updates—along with managing _groups_, you now need to handle each microservice individually. Taking the time to address this, you parameterize the job to accept the microservice as an input while carefully accounting for the rolling deployment process.
+
+At this stage, `deploylib`—your set of shell scripts for automating deployment — is growing significantly. It now includes the deployment logic, microservice configurations, and more, all centralized in one place.
+
+## Welcome, Kubernetes!
+
+While you have automated most of the deployment setup, it’s still not completely free from human intervention. Services occasionally fail in the middle of the night, despite running the `Deploy` job every 12 hours now. The job has grown so complex that it sometimes catastrophically fails, leaving the system in a half-new, half-old state.
+
+You decide to migrate the applications to Kubernetes (k8s) to take advantage of its automated recovery and autoscaling functionalities. While the microservices you’ve built should theoretically be easy to containerize, several challenges arise due to the way the apps were architected:
+
+- The application runtime doesn’t work well in containers, as it relies on direct access to hardware resources.
+- The build step generates numerous artifacts, requiring careful orchestration to produce a container image.
+- You need to maintain backward compatibility — apps migrated to k8s must still be able to communicate with apps outside of it, and vice versa.
+- The apps have a significant startup time because they load all application-critical data from the database into an in-memory cache layer to meet SLA requirements. The database access itself is slow, as it is highly normalized and requires around 17 joins for even simple queries!
+
+While these challenges are addressable, you still have an affection for your `deploylib` framework and decide to repurpose it for gradually deploying new k8s apps. By leveraging a combination of tools such as `envsubst`, `kubectl apply -f`, `kubectl wait`, `kubectl get`, and others, you integrate k8s deployments into `deploylib`.
+
+Although Kubernetes offers native rolling deployments, your architecture requires a different approach. To accommodate this, you create `Service` sets exposed behind a single `Ingress` and modify your `Deploy` job to handle rolling deployments. This results in Kubernetes performing rolling deployments within your `Deploy` job's rolling deployments — a "double roll"! 🙈
+
+## Was it Really Needed?
+
+Yes, the circumstances of the time demanded it, and you believed a simple set of deploy scripts would make life easier. However, over time, `deploylib` evolved into a [36k+ LOC shell script monster](https://bsky.app/profile/kelseyhightower.com/post/3l7m23hnv242k), with utilities written for almost everything. Even after Kubernetes was introduced, you stuck with the framework due to business requirements for making the migration _fast_. Ironically, the work ultimately slowed down because `deploylib` became a bottleneck that tied you up!
+
+Modern GitOps-based Kubernetes deployment tools like [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) and [FluxCD](https://fluxcd.io/) can greatly simplify the deployment process. Additionally, tools like [external-dns](https://kubernetes-sigs.github.io/external-dns/v0.14.0/) and [external-secrets](https://external-secrets.io/latest/) can make Kubernetes deployments fully self-service, eliminating the need for a dedicated ops person.
+
+After careful technical consideration and review, you decide to adapt these modern tools and finally retire `deploylib`, hoping that this new system doesn’t turn into the next `deploylib`.
+
+## Is Shell Really Good for Large Projects?
+
+While shell scripts can simplify and automate a few workflows, any large collection of shell scripts becomes difficult to debug due to several factors, including:
+
+- **Variable scoping:** A variable can exist before the script runs and might persist after the script ends. While `local` can help, there still needs to be a robust way to communicate between different scripts.
+- **Many ways to do the same thing:** For example, should we use `[ ]` (a.k.a. `test`) or `[[ ]]` (a shell built-in) for a condition? To check if a variable is empty, is `-z` preferable, or should we use `$var == ""`?
+- **Syntax hacks:** Constructs like `${var/find/replace}`, `${var%substr}`, `${var:-default}`, and `${var##substr}` can be confusing and make life hard for readers unfamiliar with these conventions.
+
+In such cases, a dedicated programming language with optional static typing can be a better choice, as long as the program has a consistent CLI. After all, [`kubectl`](https://github.com/kubernetes/kubectl) is a `Go` project, not a collection of shell scripts! [Kamal](https://github.com/basecamp/kamal) also deserves an honorable mention in the deployment world as a project of this kind.
+
+Some tools, like [zx](https://github.com/google/zx), bring shell primitives to higher-level programming languages, offering the best of both worlds—for example, you can use features like `Promise.race()` to manage processes efficiently!
+
+> This article is inspired by [Dear Sir, You Have Built a Compiler](https://rachit.pl/post/you-have-built-a-compiler/)

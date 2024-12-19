@@ -8,7 +8,7 @@ export const postSchema = z.object({
   date: z.string(),
   content: z.string(),
   tldr: z.string(),
-  categories: z.array(categorySchema),
+  categories: z.array(categorySchema).default([]),
 })
 
 export type Post = z.infer<typeof postSchema>

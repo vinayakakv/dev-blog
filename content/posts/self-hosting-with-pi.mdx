@@ -1,0 +1,67 @@
+---
+slug: self-hosting-with-pi
+title: Self-Hosting with Pi
+description: How I self host a Photo server with Raspberry Pi
+date: '2024-12-25'
+tldr: The article is small; I bet you can read it 😉
+---
+
+# Self-Hosting with Pi
+
+In addition to being a Software Engineer, I'm also a [Photographer](https://vinayakakv.substack.com/). I take a lot of photos, and as a result, I ran out of free storage space on Google Photos. Rather than paying for a recurring subscription to Google for additional storage, I decided to self-host my photos. I was inspired by a [friend](https://www.linkedin.com/in/vinyasns/) who was already doing this.
+
+## The Software
+
+There are many self-hosted photo solutions, each with its own niche. Here are a few that I know of:
+
+- [PhotoPrism](https://www.photoprism.app/)
+- [Ente](https://ente.io/): Focused on secure storage of photos, with encryption at rest.
+- [Immich](https://immich.app/): Offers a Google Photos-like UI and experience, along with an app.
+
+I decided to go with Immich because the setup is straightforward—just pull the `docker-compose.yml`, configure the `.env` file, and run it!
+
+## Takeout and the First Backup
+
+Google Photos provides an option to export all your photo data, but there's a catch—the EXIF metadata for the photos is stored in a separate `.json` file. Thankfully, there are tools available to merge this information back into the EXIF metadata. I used [GooglePhotosTakeoutHelper](https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper) for this task.
+
+Once the photos were prepared, the upload process was straightforward. Immich provides a CLI, which can also be run inside Docker, to batch upload the photos. The CLI handles deduplication automatically. Given the large volume of photos I had, the first upload took most of the day to complete.
+
+## Daily Backup
+
+Most of my photos are taken on my smartphone, and the Immich app can automatically recognize and back them up to the server. However, when the server and the smartphone client are not on the same network, communication becomes challenging.
+
+To address this, the server needs either a static IP or a dynamic DNS setup to be accessible from outside the local network. However, exposing your server to the public internet comes with risks. Without proper firewall configurations, it can become a potential security vulnerability.
+
+Fortunately, [Tailscale](https://tailscale.com/) comes to the rescue in such cases. It creates a VPN where devices can be manually added by installing a daemon. Once on the VPN, the devices can communicate as if they were on the same local network—all **without requiring a central VPN server!** Their [technical architecture](https://tailscale.com/blog/how-tailscale-works) document provides an excellent summary of how this is achieved.
+
+With the server and smartphone on the same Tailscale network, the backup process becomes seamless. Thanks to Tailscale's efficient architecture, communication remains fast even over a mobile 5G network.
+
+## To the Pi
+
+Initially, I hosted the server on my laptop, which I turned on only when backups were needed. However, this quickly became inconvenient when I wanted to access photos remotely—it meant I had to keep the laptop on and awake at all times.
+
+Soon, I decided to upgrade the setup to a [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/) with 8GB of RAM. While it doesn't match the performance of Apple Silicon for image processing, it is sufficient for my needs. I exported the PostgreSQL database from the laptop, which dumps SQL `INSERT` statements, and imported it into the Pi's database. The external hard disk storing the photos required no changes.
+
+> The ease with which I migrated the application from one host to another highlights the beauty of abstraction, where an application, along with its dependencies and runtime, is bundled as a _container_. These containers are the foundation of modern cloud applications, enabling effortless scheduling and scaling.
+
+## Pi Shenanigans
+
+When I purchased the Raspberry Pi, I didn’t have a micro-HDMI to HDMI adapter, which meant I couldn’t see any error messages displayed on the screen. Initially, I attempted to boot the Pi from a USB pendrive instead of a MicroSD card due to past experiences with overheated and damaged memory cards. While I successfully burned the image onto the pendrive, the Pi refused to boot.
+
+After deciding to abandon the pendrive idea, I opted to use a MicroSD card instead. However, I quickly discovered that I didn’t have a MicroSD adapter to connect the card to the SDXC port on my MacBook. Luckily, I found an old adapter lying around—but it was missing the lock switch. This caused the card to mount in read-only mode, leaving me worried that the card itself might be defective.
+
+Curious, I opened the adapter and found that the connections inside were mostly 1:1, with no complex circuitry for the lock mechanism. I learned that [any firm obstruction in place of the missing lock switch could force it into the "unlocked" state](https://www.youtube.com/watch?v=oKrn-0jXZCU). With this simple fix, I successfully burned the image and finally booted up the Pi.
+
+## Storage Architecture
+
+While it's possible to format a plain hard disk and use it to store photos, migrating to another disk can become quite challenging, especially when dealing with a large number of small files. Achieving fault tolerance would typically require hardware-level RAID, which is not cost-effective at a smaller scale. Additionally, extending the storage by adding another disk and exposing it as a single volume to applications is often not straightforward with this approach.
+
+[Logical Volume Manager (LVM)](https://wiki.archlinux.org/title/LVM) offers a solution to the challenges mentioned above. I learned about LVM from [a friend](https://www.linkedin.com/in/gregdaydevops/), and it immediately resonated with me. LVM allows for software-level RAID, the ability to extend volumes by adding additional disks, and even growing or shrinking partitions online (subject to the underlying file system). These features make it an incredibly flexible and powerful tool for managing storage.
+
+For now, I use a simple setup with a single disk, a single volume, and a single BTRFS partition. BTRFS also provides storage-level data compression, which is a bonus. If needed, additional storage can be added easily, and RAID configurations can be set up for fault tolerance in the future.
+
+## Is it Worth It?
+
+While paying Google for storage might seem like an easy option, it comes at the cost of relinquishing ownership of your data. In some cases, Google can [lock you out of your data](https://www.nytimes.com/2022/08/21/technology/google-surveillance-toddler-photo.html). Photo data is highly valuable and can [reveal a lot of personal information](https://theyseeyourphotos.com/), which could even have financial implications.
+
+On the other hand, self-hosting has its own downsides, such as maintenance. You need to treat your system as if it were a production-critical setup, with regular database backups, data replication, and hardware checks. However, the level of maintenance is entirely up to you — you’re free to do more or less depending on your comfort and requirements. The key trade-off is that you’re the owner, and with that ownership comes full responsibility.

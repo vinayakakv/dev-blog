@@ -1,0 +1,158 @@
+---
+slug: 2024-review
+title: '2024 - Year In Review'
+description: 'A summary of what I did in 2024.'
+date: '2024-12-31'
+tldr: |
+  I discuss what I did in work this year, with 12 sections, summarized as:
+
+  1. **Hybrid Search**: Building a conversational search experience using text and image embeddings, Vector DB, and rank fusion for personalized search.
+  2. **MQ Shenanigans**: Debugging and resolving RabbitMQ issues involving oversized messages and improving reliability by switching to better client libraries.
+  3. **DB Admin**: Exploring self-hosted specialized databases like ClickHouse and ScyllaDB for their performance and scalability benefits.
+  4. **Bashing Bash**: Migrating internal Bash-based deployment scripts to Kubernetes, simplifying management and reducing technical debt.
+  5. **Data Normalization Using LLMs**: Using multimodal LLMs like GPT-4 and Gemini 1.5 to efficiently transform unstructured data into structured formats for production pipelines.
+  6. **Split Microservices**: Solving scaling and reliability issues by splitting a monolithic microservice into separate components for UI and background tasks.
+  7. **Tree Cache**: Developing a smarter caching mechanism with Redis that supports type-safe cache invalidations in TypeScript.
+  8. **Tensor Math in JS**: Exploring JavaScript for ML workflows with tools like `tensorflow.js` while addressing challenges like lack of operator overloading.
+  9. **Akshara Tools**: Creating tools to tokenize Brahmic scripts, analyze poetic metres, decode Katapayadi numbers, and transliterate between scripts.
+  10. **Self-Hosting**: Self-hosting a photo library using Immich to prioritize privacy over cloud dependencies.
+  11. **Year of AI**: Leveraging AI tools like ChatGPT and Cursor IDE for code generation, debugging, and infrastructure setup, significantly enhancing productivity.
+  12. **Move Fast, Break Things, Fix Fast, Don't Burn Out**: Maintaining a rapid development pace with prioritization, collaboration, and self-care to avoid burnout.
+categories: []
+---
+
+Time moves so fast; it feels like it has been just days since I wrote [2023 in Review](blog/2023-review), and now 2024 is wrapping up. It was a superb year, and in this article, I will touch upon the things I worked on and learned this year.
+
+## 1. Hybrid Search
+
+Search is a ubiquitous experience that spans across our daily lives. With the touch of conversational AIs, we can make search more personalized and accessible, with the LLM acting as an empathetic guide to the topics we are searching for. Using a combination of image and text embedding models, Vector DB, and rank fusion techniques, we built a conversational search experience. The details can be found in the article linked below:
+
+<BlogCard slug="hybrid-search" title="Hybrid Search" />
+
+## 2. MQ Shenanigans
+
+We have a high-traffic service in production to monitor real-time changes on product pages, backed by a Bloom filter to deduplicate requests at scale. We wanted to route the data captured to another service to commit it to a database, and we chose RabbitMQ for this task. All was fine until one day when we observed an increase in 5xx errors with traffic and encountered a strange error message: the broker received a message with a size of 1,342,177,289 bytes.
+
+Debugging this issue was a fun experience, and I wrote more about it in a separate article:
+
+<BlogCard slug="1342177289" title="1342177289" />
+
+In the end, we had to switch to [rabbitmq/client](https://www.npmjs.com/package/rabbitmq-client), which implemented automatic retries and provided a useful abstraction. With that library, our server code looks more organized than ever — `publisher.ts`, `consumer.ts`, `init.ts`, `cleanup.ts`, `server.ts`, and so on! Additionally, the [@cloudamqp/amqp-client](https://www.npmjs.com/package/@cloudamqp/amqp-client) fixed [the issue](https://github.com/cloudamqp/amqp-client.js/pull/123)!
+
+## 3. DB Admin
+
+While Postgres is praised as an all-purpose database, cloud-managed versions often restrict its full potential by limiting the plugins that can be installed. Additionally, specialized databases come with their own benefits and performance optimizations tailored to their intended use cases. This year, I worked with a few databases, focusing on self-hosting and managing them.
+
+### ClickHouse
+
+While researching a vector storage engine for our Hybrid Search Engine, we wanted a SQL-compatible database that could store and index vector data alongside other types of data. [ClickHouse](https://clickhouse.com/) turned out to be a great choice for us, as it is optimized for fast analytics queries, and its vector search [is impressively fast even without indices](https://news.ycombinator.com/item?id=35637860).
+
+We self-hosted ClickHouse using [Bitnami Helm Charts](https://bitnami.com/stack/clickhouse/helm). While the setup was straightforward, I struggled to get data distribution working until I discovered the [`CREATE DISTRIBUTED TABLE`](https://clickhouse.com/docs/en/engines/table-engines/special/distributed) DDL, which made distribution work flawlessly.
+
+ClickHouse uses a [ZooKeeper](https://en.wikipedia.org/wiki/Apache_ZooKeeper)-compatible application called Keeper to manage synchronization among nodes. This is an interesting approach that offloads synchronization from the core database.
+
+### ScyllaDB
+
+To meet production SLAs, we often need a fast-read database where consistency is not critical. Several NoSQL databases excel in this aspect. [ScyllaDB](https://www.scylladb.com/) is a Cassandra-compatible database that offers excellent performance at a lower operating cost.
+
+We deployed a self-managed ScyllaDB cluster in Kubernetes using their [operator](https://github.com/scylladb/scylla-operator). However, ScyllaDB recommends using bare-metal VMs for direct hardware access to achieve even greater performance. A limitation of the operator is that it does not allow storage expansion for nodes once the cluster is created, even though Kubernetes persistent volumes (PVs) can be scaled without data loss. We had to follow [several steps](https://github.com/scylladb/scylla-operator/pull/2243/files) to bypass the operator and perform these operations manually.
+
+One of the strengths of ScyllaDB’s architecture is its fault tolerance. During various management operations, we experienced one or two nodes going down without impacting production. Additionally, the ScyllaDB client is cluster-aware and automatically routes queries to the appropriate nodes. Buoyed by the success of this deployment, we are now considering moving our self-hosted Redis to a cluster architecture as well.
+
+## 4. Bashing Bash
+
+There are many ways to deploy an application and manage its lifecycle — some managed by cloud providers, some abstracted by Kubernetes, and others entirely managed by internal tools. I worked with a set of internal tools written in Bash to migrate applications managed by them to Kubernetes. What started as a simple set of scripts to automate deployments had evolved into a massive codebase, for which Bash was far from ideal. I detailed this experience in the article below:
+
+<BlogCard
+  slug="you-have-built-kubernetes-sir"
+  title="Dear Sir, You Have Built Kubernetes"
+/>
+
+## 5. Data Normalization Using LLMs
+
+Unstructured data in the form of long-form texts, images, and audio is everywhere. One of the key challenges businesses face is converting such data, specific to their domain, into a structured format suited to their needs. Before LLMs, these operations were mostly manual and time-consuming.
+
+With multimodal LLMs and their ability to output structured data, the problem becomes much simpler to solve, provided we craft a [simple prompt](https://kenkantzer.com/lessons-after-a-half-billion-gpt-tokens/) and supply the right schema for the desired output. Thankfully, [Vercel's AI SDK](https://sdk.vercel.ai/docs/introduction) makes this process easy. We are running these pipelines in production, asking the LLM to flag outputs where it is not confident. We also validate the outputs using business logic and flag certain cases for manual review.
+
+We are using Google's Gemini 1.5 and OpenAI's GPT-4o for different use cases, both of which are multimodal. The results show significant improvements in accuracy and processing time. Overall, it has been a game changer.
+
+## 6. Split Microservices
+
+We had a consumer-facing microservice that also handled some background tasks. We observed that the consumer-facing APIs were throwing 5xx errors when the service was autoscaling due to an increase in the load of background tasks. Upon investigation, we identified that the issue was with the ingress, which was routing traffic to pods scheduled for termination during downscaling.
+
+While GKE [suggests](https://cloud.google.com/kubernetes-engine/docs/troubleshooting/load-balancing#500-series-errors) adding a sleep before termination, we opted to split the microservice to separately handle consumer-facing UIs and background tasks, using a single flag to manage the configuration. You can read more about this approach in the article below:
+
+<BlogCard slug="splitting-microservice" title="Splitting Microservice" />
+
+## 7. Tree Cache
+
+Caching enhances application performance by providing fast access to frequently accessed information. We have a function, `cached`, that wraps a function and caches its results in Redis. However, when the underlying data changes, we need an intelligent way to invalidate this cache.
+
+Should we invalidate all the cache entries for this function? While this approach sounds straightforward, it often results in excessive invalidation. What about cases where the function has multiple parameters, and the parameter order reflects the domain model? Additionally, how can we make the `cached` function and its invalidations type-safe in TypeScript?
+
+The article below dives deep into these challenges and presents a solution:
+
+<BlogCard slug="tree-cache" title="Tree Cache" />
+
+## 8. Tensor Math in JS
+
+JavaScript began as the language of the web, but today, its scope has expanded far beyond that. JavaScript now powers backends through runtimes like Node.js, Deno, and Bun. As [Atwood's Law](https://www.laws-of-software.com/laws/atwood/) states:
+
+> Any application that can be written in JavaScript, will eventually be written in JavaScript.
+
+That said, the field of machine learning seems to lag behind in this regard. While there are excellent libraries like [Xenova's Transformers](https://github.com/huggingface/transformers.js) for running Hugging Face pipelines in the browser and backend, and runtimes like [ONNX Runtime Web](https://onnxruntime.ai/docs/tutorials/web/) make it easy to execute pretrained models, a noticeable gap exists. Specifically, JavaScript lacks an accelerated matrix library like `numpy` or `jax`, as well as a comprehensive suite of scientific algorithms like `scipy`.
+
+Fortunately, TensorFlow's JavaScript wrapper, [`tensorflow.js`](https://www.tensorflow.org/js), provides mathematical and neural network operations, offering a glimpse of hope for this gap. However, the absence of operator overloading in JavaScript introduces unique and interesting patterns in code, which I discussed in detail in the article below:
+
+<BlogCard slug="operator-overloaded" title="Operators Overloaded" />
+
+## 9. Akshara Tools
+
+Language began as a medium for communication between individuals. Soon, writing followed, allowing knowledge to be passed across generations. Poetry and singing became mediums to express emotions, often evoking feelings through rhythmic patterns. The Indian subcontinent is home to numerous languages and writing systems, most of which descend from the _Brahmi_ family. I worked on a set of tools to parse and identify patterns in letters (known as _Akshara_, literally "the one that does not decay"):
+
+- **Tokenizer**: Brahmic letters are not as atomic as Latin letters. A single letter may consist of a vowel indicator, consonant component, and additional sounds. This tool identifies the various components of a letter and displays them.
+- **Prastara**: Reading a passage often involves distinguishing between long and short notes. A pattern of these notes constitutes a poetical _metre_. This tool identifies the long and short notes in a text and attempts to determine the metre (_Chandas_ in Sanskrit) in which the poetry is written.
+- **Katapayadi Decoder**: Ancient Indian mathematicians devised numerous ways to encode large numbers in memorable forms. _Katapayadi_ is one such scheme where consonants map to numbers on a 0-9 scale. This tool decodes numbers from an input sentence.
+- **Transliterate**: All of the above tools are implemented for the [Kannada Unicode Block](), as Kannada is my native language. Since not all users are familiar with this script, there is a need to transliterate between the preferred script and Kannada. The [Aksharamukha]() Python library provides such functionality, which I run in the browser using [Pyodide](). I also bypassed a few incompatible dependencies. This tool serves as a debug interface for the `aksharamukha` package.
+
+These tools are hosted at [akshara.vinayakakv.com](https://akshara.vinayakakv.com) and are [open source](https://github.com/vinayakakv/akshara), complete with examples to explore. Go give them a try!
+
+## 10. Self-Hosting
+
+We have grown accustomed to cloud-based experiences that make our lives easier. However, these conveniences often come at the cost of our data being _owned_ by these entities, which might choose to monetize it, potentially compromising our privacy.
+
+Recently, I explored self-hosting my photo library using [Immich](https://immich.app/). I delve deeper into this experience in the article below:
+
+<BlogCard slug="self-hosting-with-pi" title="Self-Hosting with Pi" />
+
+## 11. Year of AI
+
+The year 2024 witnessed the rise of AI in the form of generative text and image models. The advent of intelligent chat interfaces like ChatGPT and Anthropic brought AI into our daily lives. While I, like many [others](https://www.joshwcomeau.com/blog/the-end-of-frontend-development/), believe that AI is not going to replace software engineers anytime soon, it has already become an invaluable addition to our toolbox.
+
+Here are a few personal experiences where AI significantly helped achieve a goal, effectively turning engineers into "2x engineers" (not quite 10x yet!):
+
+- I built the **entire** interface of _Akshara Tools_ using Vercel's [v0](https://v0.dev/). I first asked it to generate the skeleton and then iteratively requested several components. While the code output from the AI was not final — I had to edit CSS classes to replace `margin`s with `gap`s, among other tweaks — it provided a solid head start. [Here](https://v0.dev/chat/ggbkmcN2pBA?b=b_JkLpq0375IA) is the chat snippet.
+- ChatGPT is extremely helpful for trivial code generation tasks, such as converting SQL DDL to a Zod schema, generating an example object from a Zod schema, or implementing methods for a Java `interface` using the same pattern as an initial manual implementation.
+- One of my coworkers used ChatGPT for process-level debugging to understand why a process was stuck inside a container. It analyzed `ps aux` outputs, suggested using `lsof` to examine open files and network connections, and more. While we had to filter out some less relevant suggestions based on our knowledge, it was a great assistant.
+- Another coworker successfully set up an entire Kubernetes (k8s) environment using Flux with significant help from ChatGPT, and without external assistance! Flux was configured to watch a folder and create resources in the cluster, while manually managed resources like `Secret`s were created with YAML files and commands suggested by ChatGPT.
+- I migrated this blog from remote CMS-hosted articles to MDX source files with the help of [Cursor's IDE](https://www.cursor.com/). The AI wrote one-off scripts for downloading the data and converting it into the required format. However, I couldn’t achieve satisfactory results while attempting to migrate the blog from Gatsby to Astro.
+- Cursor's IDE also helped me create a simple script to resize and watermark photos for [my personal blog](https://vinayakakv.substack.com/). I guided it to use `sharp` for image processing and the `bun` runtime. This demonstrates how we can decide the tools and let AI handle one-off program generation. In such cases, the quality of the code doesn't matter much as long as it works.
+- We explored estimating the parameters of a normal distribution from a noisy sample dataset using ChatGPT's code execution capabilities. While we carefully reviewed the code, the analysis proved very helpful for our implementation.
+- ChatGPT's ability to browse the web and perform searches has made it a powerful tool for information discovery. For example, I was searching for a music lecture using Google’s advanced operators but couldn’t find it. A few interactions with ChatGPT helped me accurately identify the presenter and the lecture. This kind of experience genuinely elevates quality of life. [Here](https://chatgpt.com/share/676bb325-1a74-8002-9bb5-3496f3f725a1) is the chat snippet of the search.
+- I often use ChatGPT to spell-check and correct the grammar of my articles nowadays.
+
+## 12. Move Fast, Break Things, Fix Fast, Don't Burn Out
+
+Working in a startup often means dealing with uncertain requirements due to an ever-changing business landscape. Last year, we delivered a project to bring TrueFit to Shopify in a record time of three months. This year, we maintained the same pace, thanks to a commitment to [keeping things simple](https://en.wikipedia.org/wiki/KISS_principle), making small pull requests and merging them quickly, and having a hassle-free release experience with Flux and Kubernetes.
+
+Moving at this speed often results in occasional bugs in production. However, that’s not a problem, as we can fix them quickly given our fast-paced workflow. The attitude of directing all attention to solving a production-critical issue, inspired by [_Kaizen_](https://en.wikipedia.org/wiki/Kaizen), also plays a crucial role. Once the issue is resolved, we return to our rapid development pace.
+
+An important aspect of this model is avoiding stress from deliverables. This requires brutal prioritization of tasks to stay focused on what truly matters. Taking rest whenever necessary is essential for preventing burnout. The key is being self-aware enough to recognize early signs of burnout and actively taking steps to recover.
+
+## Wrapping Up...
+
+As evident from the above paragraphs, 2024 was a fantastic year. There are a few things I might have missed mentioning and some I wish to elaborate on, which I plan to do in the coming days. None of this would have been possible without the unwavering support of my family and friends, a collaborative and trust-based workplace, incredible coworkers, and the tranquility of the place I call home.
+
+With that, I conclude this article with an optimistic outlook for 2025. It’s easy to be pessimistic or neutral, but by being an [optimist](https://www.youtube.com/cleoabram), you can help craft the world you imagine.
+
+Happy New Year, y’all!

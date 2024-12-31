@@ -41,7 +41,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         description="Dev Blog of Vinayaka K V"
         openGraph={{
           type: 'website',
-          url: 'https://dev.vinayakakv.com',
+          url: 'https://vinayakakv.com',
           locale: 'en_US',
           profile: {
             firstName: 'Vinayaka',
@@ -52,11 +52,11 @@ function MyApp({ Component, pageProps }: AppProps) {
           handle: '@me.vinayakakv',
           cardType: 'summary_large_image',
         }}
-        canonical="https://dev.vinayakakv.com"
+        canonical="https://vinayakakv.com"
       />
       <WebPageJsonLd
         description="Dev Blog of Vinayaka K V"
-        id="https://dev.vinayakakv.com"
+        id="https://vinayakakv.com"
         lastReviewed={new Date().toISOString()}
         reviewedBy={{
           type: 'Person',

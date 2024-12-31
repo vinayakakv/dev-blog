@@ -26,7 +26,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         title={title}
         description={description}
         datePublished={date}
-        url={`https://dev.vinayakakv.com/blog/${slug}`}
+        url={`https://vinayakakv.com/blog/${slug}`}
         images={[]}
         authorName="Vinayaka K V"
       />
@@ -35,7 +35,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         description={description}
         openGraph={{
           type: 'article',
-          url: `https://dev.vinayakakv.com/blog/${slug}`,
+          url: `https://vinayakakv.com/blog/${slug}`,
           article: {
             authors: ['Vinayaka K V'],
             publishedTime: date,

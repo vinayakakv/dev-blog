@@ -5,6 +5,7 @@ import Head from 'next/head'
 import { Navbar } from '@components/Navbar'
 import { Footer } from '@components/Footer'
 import { DefaultSeo, WebPageJsonLd } from 'next-seo'
+import { Analytics } from '@vercel/analytics/react'
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -69,6 +70,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         </main>
         <Footer />
       </div>
+      <Analytics />
     </>
   )
 }

@@ -9,10 +9,6 @@ const menuLinks = [
     name: 'Blog',
     link: '/blog',
   },
-  {
-    name: 'Collections',
-    link: '/category',
-  },
 ]
 
 export function Navbar() {

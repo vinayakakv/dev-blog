@@ -6,7 +6,6 @@ import type {
 } from 'next'
 import { MDXRemote } from 'next-mdx-remote'
 import { Section } from '@components/Section'
-import { TagList } from '@components/TagList'
 import { Link } from '@components/Link'
 import { serialize, readMdxFile, getMdxFiles } from '@helpers/mdx'
 import Head from 'next/head'
@@ -18,7 +17,7 @@ import 'katex/dist/katex.min.css'
 const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
   post,
 }) => {
-  const { title, description, date, categories, content, tldr, slug } = post
+  const { title, description, date, content, tldr, slug } = post
   const className = `prose prose-invert mt-4 max-w-none prose-custom`
   return (
     <>
@@ -39,7 +38,6 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
           article: {
             authors: ['Vinayaka K V'],
             publishedTime: date,
-            tags: categories.map((category) => category.title),
           },
         }}
       />
@@ -53,7 +51,6 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         <p className="text-sm">
           <strong>Published On:</strong> {formatDate(date)}
         </p>
-        <TagList tags={categories} />
         <Link href="#summary">TL; DR {'→'}</Link>
         <article className={className}>
           <MDXRemote {...content} components={MDXComponents} />

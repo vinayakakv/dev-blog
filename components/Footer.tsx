@@ -1,6 +1,6 @@
 import { Button } from '@components/Button'
 import { Link } from '@components/Link'
-import { Icon, IconName } from '../Icon'
+import { Icon, IconName } from './icons'
 
 type HeroLink = {
   name: string
@@ -50,7 +50,9 @@ export function Footer() {
         ))}
       </div>
 
-      <p>Copyright 2022-present Vinayaka K V. All rights reserved.</p>
+      <p>
+        Copyright 2022-<em>present</em> Vinayaka K V. All rights reserved.
+      </p>
 
       <p>
         Website is open source. View source at{' '}

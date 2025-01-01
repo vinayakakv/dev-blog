@@ -1,7 +1,7 @@
 import { Post } from '@schema/post'
 import { formatDate } from '@utils'
-import { Button } from '../Button'
-import { Link } from '../Link'
+import { Button } from './Button'
+import { Link } from './Link'
 
 type Props = Omit<Post, 'content' | 'tldr'>
 

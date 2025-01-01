@@ -23,7 +23,6 @@ const Blog: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
                 date={post.date}
                 slug={`/blog/${post.slug}`}
                 key={post.slug}
-                categories={post.categories}
               />
             ))
           ) : (

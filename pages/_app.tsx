@@ -5,12 +5,13 @@ import Head from 'next/head'
 import { Navbar } from '@components/Navbar'
 import { Footer } from '@components/Footer'
 import { DefaultSeo, WebPageJsonLd } from 'next-seo'
+import { Analytics } from '@vercel/analytics/react'
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
     <>
       <Head>
-        <title>dev.vinayakakv</title>
+        <title>vinayakakv</title>
         <link
           rel="apple-touch-icon"
           sizes="180x180"
@@ -37,7 +38,7 @@ function MyApp({ Component, pageProps }: AppProps) {
       </Head>
       <Navbar />
       <DefaultSeo
-        title="dev.vinayakakv"
+        title="vinayakakv"
         description="Dev Blog of Vinayaka K V"
         openGraph={{
           type: 'website',
@@ -69,6 +70,7 @@ function MyApp({ Component, pageProps }: AppProps) {
         </main>
         <Footer />
       </div>
+      <Analytics />
     </>
   )
 }

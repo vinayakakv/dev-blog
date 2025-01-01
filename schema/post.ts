@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { categorySchema } from './category'
 
 export const postSchema = z.object({
   slug: z.string(),
@@ -8,7 +7,6 @@ export const postSchema = z.object({
   date: z.string(),
   content: z.string(),
   tldr: z.string(),
-  categories: z.array(categorySchema).default([]),
 })
 
 export type Post = z.infer<typeof postSchema>

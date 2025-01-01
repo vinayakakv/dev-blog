@@ -15,7 +15,6 @@ export function BlogGrid({ posts }: Props) {
           date={post.date}
           slug={`/blog/${post.slug}`}
           key={post.slug}
-          categories={post.categories}
         />
       ))}
     </div>

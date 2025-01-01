@@ -17,7 +17,7 @@ export const MDXComponents: MDXRemoteProps['components'] = {
       </Link>
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <Link href={slug} className="no-underline" external>
-          <Button>{'Read More ->'}</Button>
+          <Button>{'Read More →'}</Button>
         </Link>
       </div>
     </div>

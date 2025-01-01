@@ -54,7 +54,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
           <strong>Published On:</strong> {formatDate(date)}
         </p>
         <TagList tags={categories} />
-        <Link href="#summary">TL; DR {'->'}</Link>
+        <Link href="#summary">TL; DR {'→'}</Link>
         <article className={className}>
           <MDXRemote {...content} components={MDXComponents} />
         </article>

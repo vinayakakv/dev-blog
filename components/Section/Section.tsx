@@ -16,10 +16,9 @@ export function Section({
   className = '',
 }: Props) {
   const H = big ? 'h1' : 'h2'
-  const hClassname = big ? 'text-6xl' : ''
   return (
     <section className={`flex flex-col gap-4 ${className}`}>
-      <H className={hClassname}>{name}</H>
+      <H>{name}</H>
       <p className="text-sm">{description}</p>
       {children}
     </section>

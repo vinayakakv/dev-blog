@@ -23,7 +23,7 @@ export function BlogCard({
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <p>{formatDate(date)}</p>
         <Link href={slug}>
-          <Button>{'Read More ->'}</Button>
+          <Button>{'Read More →'}</Button>
         </Link>
       </div>
     </div>

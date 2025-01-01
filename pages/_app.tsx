@@ -10,7 +10,7 @@ function MyApp({ Component, pageProps }: AppProps) {
   return (
     <>
       <Head>
-        <title>dev.vinayakakv</title>
+        <title>vinayakakv</title>
         <link
           rel="apple-touch-icon"
           sizes="180x180"
@@ -37,7 +37,7 @@ function MyApp({ Component, pageProps }: AppProps) {
       </Head>
       <Navbar />
       <DefaultSeo
-        title="dev.vinayakakv"
+        title="vinayakakv"
         description="Dev Blog of Vinayaka K V"
         openGraph={{
           type: 'website',

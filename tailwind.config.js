@@ -17,7 +17,7 @@ module.exports = {
       },
     },
     fontFamily: {
-      mono: ['ui-monospace', 'Fira Code'],
+      mono: ['ui-monospace', 'IBM Plex Mono'],
     },
   },
   plugins: [require('@tailwindcss/typography')],

@@ -21,7 +21,7 @@ const Home: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
         {posts.length > 0 ? (
           <>
             <BlogGrid posts={posts} />
-            <Link href="/blog">See more! {'->'}</Link>
+            <Link href="/blog">See more! {'→'}</Link>
           </>
         ) : (
           <Placeholder>Coming soon!</Placeholder>

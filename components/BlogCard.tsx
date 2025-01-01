@@ -7,7 +7,7 @@ type Props = Omit<Post, 'content' | 'tldr'>
 
 export function BlogCard({ title, description, slug, date }: Props) {
   return (
-    <div className="flex max-w-md flex-col items-stretch justify-between gap-2 bg-gray-700 px-4 py-2 hover:bg-gray-600">
+    <div className="flex max-w-md flex-col items-stretch justify-between gap-4 bg-gray-700 px-4 py-2 hover:bg-gray-600">
       <Link href={slug} className="text-white">
         <h3>{title}</h3>
       </Link>

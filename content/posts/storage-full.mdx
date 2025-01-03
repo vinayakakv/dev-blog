@@ -1,0 +1,70 @@
+---
+slug: storage-full
+title: 'Storage Full'
+description: 'When the storage runs out, the troubles begin...'
+date: '2025-01-03'
+tldr: |
+  - In this article, we explore the importance of storage space for the smooth running of applications.
+  - Our first example is a VPN server, which rejected new connections because it ran out of space.
+  - The culprit was historical log files and the lack of log rotation setup.
+  - In the absence of sufficient privileges, clearing out logs proved to be tricky, and we had to attach the disk to another VM where we had the necessary privileges to delete the logs.
+  - We resolved the issue long-term by ensuring proper privileges and setting up a cron job for log rotation.
+  - Another example is a ScyllaDB node managed in Kubernetes with the help of the ScyllaDB operator.
+  - The node went down due to full storage space, and the manager did not support an in-place storage upgrade.
+  - We addressed the issue by deleting the entire node and recreating it with increased storage, but this left the cluster in an asymmetric state where the new node had more storage than the existing ones.
+  - To increase the storage on other nodes, we had to take a complex route by bypassing the operator and acting as operators ourselves.
+---
+
+Storage is a critical component of any software system. Some applications use storage to persist their data, while others, such as databases, rely on it exclusively.
+
+The operating system provides an abstraction of storage through files and folders, which are managed by filesystems and supported by one or more physical disks. When the underlying disk becomes full, the OS and applications may reject requests, potentially leading to downtime. In this article, we will explore the "disk full" issues we encountered, how we resolved them, and the steps we took to ensure they do not occur again.
+
+## Access Denied
+
+One morning, while attempting to log in to our corporate VPN — through which we access our development and production servers — we were met with timeouts. The issue was widespread, and no one could connect to the VPN.
+
+Fortunately, we were able to access our cloud provider's VM management page and confirmed that the VPN host was up and running. Eager to investigate further, we allowed SSH access to the machine, restricting it to our machine's public IPs. This required us to manually create and edit firewall rules through the UI, as our Terraform setup was inaccessible within the VPN.
+
+Once inside, we `tail`ed the logs of our VPN server and found messages indicating that the storage was full. Running `df -h` confirmed that the root storage was 100% occupied. We used `du -h` to analyze the suspected culprits, and sure enough, logs were consuming around 70% of the storage. The VPN server was logging access attempts and other activities into the log files along with its internal SQLite database for audit purposes. Fortunately, this meant we could delete _all_ the old logs without any impact.
+
+Unfortunately, due to a misconfiguration, we couldn't gain root access to the machine. To resolve this, we had to shut down the machine (after all, the VPN was down anyway!), detach the boot disk, attach it to another VM where we had root access, and delete the logs. Afterward, we reattached the disk back to the VPN VM, and voilà — everything was back to normal.
+
+The first step in our long-term fix was to ensure the right users could gain root access. Next, we configured a cron job to automatically delete old log files using `ansible.builtin.cron`. May that problem never repeat!
+
+## Database Overloaded
+
+One night, in the middle of sweet REM sleep, we were paged because one of our production-critical services was responding with an elevated rate of 500 errors. Debugging revealed that one of the database nodes (we use a ScyllaDB cluster) was down _and_ the application was using that node's IP as its single contact point.
+
+ScyllaDB supports passing a list of node IPs as contact points to establish the initial connection. Once connected, the client becomes cluster-aware — meaning that even if the initial node used for the connection goes down, the connection remains unaffected.
+
+On that fateful day, one node went down, and a service using that node's IP as its contact point was restarted. As a result, the service was unable to connect to the cluster and became unhealthy. Unfortunately, our [`deploylib`](/blog/you-have-built-kubernetes-sir) did not catch this issue and allowed traffic to flow to these unhealthy service instances.
+
+The first thing we did was update the contact point to another node's address and restart the affected service to restore its health. Even though one node was down, the cluster remained healthy — thanks to replication! Afterward, we began investigating the root cause.
+
+Looking at the database logs revealed that there was no space left on the device. ScyllaDB [recommends keeping at least 20% of the disk free](https://opensource.docs.scylladb.com/stable/getting-started/system-requirements.html#disk-space) to support computations and other maintenance operations. Additionally, we realized we had forgotten to configure storage space alerts 😅.
+
+We self-host ScyllaDB using their [Kubernetes operator](https://github.com/scylladb/scylla-operator), which provides a `ScyllaCluster` custom resource to create and manage Scylla clusters. To bring the affected node back online, we attempted the following actions:
+
+1. **Increase storage in the node configuration:**  
+   The operator complained that it could not perform this action. This is a known limitation of the operator.
+2. **Scale down nodes in the rack to zero, then increase storage:**  
+   The pod did not respond to Kubernetes' shutdown signals. The `scylla` process kept it busy, requiring manual termination. Despite this, the operator refused to increase storage because the persistent volume was still attached.
+3. **Delete the rack and recreate it with increased storage:**  
+   This approach worked but triggered resharding, which took a few hours. Adding the rack back initiated another round of resharding. These operations consumed significant CPU resources at times, impacting production performance. As a result, we had to schedule them during off-hours. [Tablets](https://opensource.docs.scylladb.com/stable/architecture/tablets.html) may provide a way to make cluster scaling less costly in the future. Scylla's enterprise version also reportedly offers the ability to reduce the priority of maintenance operations.
+
+At the end, we had a stable cluster, albeit with asymmetric storage capacity 😅 — the newly brought-up node had more storage than the others. We needed to increase the storage capacity of the other nodes as well. However, it was clear that approach #3 was not the ideal solution!
+
+One of our [engineers](https://www.linkedin.com/in/gregdaydevops/) devised an intelligent way to handle this scaling:
+
+1. **Prevent the Scylla operator from making any changes to the cluster:**  
+   Scale the operator deployment to zero.
+2. **Orphan-delete the replica set of the Scylla rack:**  
+   This is necessary because Persistent Volumes (PVs) are managed by Kubernetes, but Kubernetes [does not allow PV capacity to be changed](https://github.com/helm/helm/issues/7998) after the Replica Sets are created.
+3. **Manually increase PV size by adjusting the `PersistentVolumeClaim` size:**  
+   The updated PVCs should automatically reattach to the pods.
+4. **Edit the `ScyllaCluster` resource to specify the new storage size:**  
+   Bring the Scylla operator back up. It should automatically recreate the Replica Sets. At this point, there is no configuration drift.
+
+This procedure is also documented in one of the [PRs](https://github.com/scylladb/scylla-operator/pull/2243) on the Scylla-operator GitHub repository. We applied this procedure to all the remaining nodes and successfully made the cluster storage symmetric.
+
+Eventually, we updated our applications to accept an array of IPs as contact points, ensuring better resilience. Additionally, we set up monitoring on all nodes for critical metrics, including storage space. Now, we can sleep comfortably, knowing we’ll be alerted to any potential problems well in advance.

@@ -52,7 +52,7 @@ We self-host ScyllaDB using their [Kubernetes operator](https://github.com/scyll
 3. **Delete the rack and recreate it with increased storage:**  
    This approach worked but triggered resharding, which took a few hours. Adding the rack back initiated another round of resharding. These operations consumed significant CPU resources at times, impacting production performance. As a result, we had to schedule them during off-hours. [Tablets](https://opensource.docs.scylladb.com/stable/architecture/tablets.html) may provide a way to make cluster scaling less costly in the future. Scylla's enterprise version also reportedly offers the ability to reduce the priority of maintenance operations.
 
-At the end, we had a stable cluster, albeit with asymmetric storage capacity 😅 — the newly brought-up node had more storage than the others. We needed to increase the storage capacity of the other nodes as well. However, it was clear that approach #3 was not the ideal solution!
+At the end, we had a stable cluster, albeit with asymmetric storage capacity — the newly brought-up node had more storage than the others. We needed to increase the storage capacity of the other nodes as well. However, it was clear that approach #3 was not the ideal solution!
 
 One of our [engineers](https://www.linkedin.com/in/gregdaydevops/) devised an intelligent way to handle this scaling:
 
@@ -61,7 +61,7 @@ One of our [engineers](https://www.linkedin.com/in/gregdaydevops/) devised an in
 2. **Orphan-delete the replica set of the Scylla rack:**  
    This is necessary because Persistent Volumes (PVs) are managed by Kubernetes, but Kubernetes [does not allow PV capacity to be changed](https://github.com/helm/helm/issues/7998) after the Replica Sets are created.
 3. **Manually increase PV size by adjusting the `PersistentVolumeClaim` size:**  
-   The updated PVCs should automatically reattach to the pods.
+   The updated PVs should automatically reattach to the pods.
 4. **Edit the `ScyllaCluster` resource to specify the new storage size:**  
    Bring the Scylla operator back up. It should automatically recreate the Replica Sets. At this point, there is no configuration drift.
 

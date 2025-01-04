@@ -40,6 +40,7 @@ const BlogPost: NextPage<InferGetStaticPropsType<typeof getStaticProps>> = ({
             publishedTime: date,
           },
         }}
+        canonical={`https://vinayakakv.com/blog/${slug}`}
       />
       <Head>
         <link

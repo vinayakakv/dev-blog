@@ -1,12 +1,12 @@
 import { redis } from 'external'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-redis.connect()
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  await redis.connect()
+
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method not allowed' })
   }
@@ -18,6 +18,8 @@ export default async function handler(
 
   // Parse JSON strings back to objects
   const parsedLinks = links.map((link) => JSON.parse(link))
+
+  await redis.disconnect()
 
   return res.status(200).json(parsedLinks)
 }

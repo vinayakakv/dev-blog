@@ -30,7 +30,7 @@ export default async function handler(
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  console.log(req.body)
+  console.log({body: req.body, headers: req.headers})
 
   const validationResult = cloudMailinEmailSchema.safeParse(req.body)
 
@@ -69,6 +69,6 @@ export default async function handler(
     score: timestamp,
     value: JSON.stringify(normalized),
   })
-  
+
   return res.status(200).json({ success: true })
 }

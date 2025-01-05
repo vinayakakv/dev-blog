@@ -1,12 +1,25 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { getLinkPreview } from 'link-preview-js'
+import { redis } from 'external'
+
+redis.connect()
 
 const cloudMailinEmailSchema = z.object({
   plain: z.string(),
   envelope: z.object({
     from: z.literal('me.vinayakakv@gmail.com'),
   }),
+})
+
+const normalizePreviewData = (
+  data: Awaited<ReturnType<typeof getLinkPreview>>
+) => ({
+  title: 'title' in data ? data.title : new URL(data.url).hostname,
+  description: 'description' in data ? data.description || null : null,
+  image: 'images' in data ? data.images[0] || null : null,
+  url: data.url,
+  date: new Date().toISOString(),
 })
 
 export default async function handler(
@@ -17,23 +30,22 @@ export default async function handler(
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  console.log(req.body)
-
   const validationResult = cloudMailinEmailSchema.safeParse(req.body)
 
   if (!validationResult.success) {
-    return res.status(400).json(validationResult.error)
+    return res.status(400).end()
   }
 
-  const body = validationResult.data.plain
-  const firstLink = body.split('\n').at(0)?.trim()
+  const email = validationResult.data
 
-  if (!firstLink) {
-    return res.status(400).json({ message: 'Missing email' })
-  }
+  const previewData = await getLinkPreview(email.plain)
+  const normalized = normalizePreviewData(previewData)
 
-  const previewData = await getLinkPreview(firstLink)
-  console.log('Link preview:', previewData)
+  const timestamp = new Date(normalized.date).getTime()
+  await redis.zAdd('links', {
+    score: timestamp,
+    value: JSON.stringify(normalized),
+  })
 
   return res.status(200).json({ success: true })
 }

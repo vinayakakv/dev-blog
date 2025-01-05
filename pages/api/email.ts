@@ -38,7 +38,22 @@ export default async function handler(
 
   const email = validationResult.data
 
-  const previewData = await getLinkPreview(email.plain)
+  const previewData = await getLinkPreview(email.plain, {
+    followRedirects: `manual`,
+    handleRedirects: (baseURL, forwardedURL) => {
+      const urlObj = new URL(baseURL)
+      const forwardedURLObj = new URL(forwardedURL)
+      if (
+        forwardedURLObj.hostname === urlObj.hostname ||
+        forwardedURLObj.hostname === 'www.' + urlObj.hostname ||
+        'www.' + forwardedURLObj.hostname === urlObj.hostname
+      ) {
+        return true
+      } else {
+        return false
+      }
+    },
+  })
   const normalized = normalizePreviewData(previewData)
 
   const timestamp = new Date(normalized.date).getTime()

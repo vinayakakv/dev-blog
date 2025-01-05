@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { getLinkPreview } from 'link-preview-js'
-import { redis } from 'external'
+import { createRedisClient } from 'external'
 
 const cloudMailinEmailSchema = z.object({
   plain: z.string(),
@@ -24,7 +24,8 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  await redis.connect()
+  await using redis = await createRedisClient()
+
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' })
   }
@@ -68,6 +69,6 @@ export default async function handler(
     score: timestamp,
     value: JSON.stringify(normalized),
   })
-  await redis.disconnect()
+  
   return res.status(200).json({ success: true })
 }

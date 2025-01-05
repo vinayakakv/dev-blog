@@ -37,9 +37,13 @@ export default async function handler(
     return res.status(400).end()
   }
 
-  const email = validationResult.data
+  const link = validationResult.data.plain.split('\n').at(0)?.trim()
 
-  const previewData = await getLinkPreview(email.plain, {
+  if (!link) {
+    return res.status(400).end()
+  }
+
+  const previewData = await getLinkPreview(link, {
     followRedirects: `manual`,
     handleRedirects: (baseURL, forwardedURL) => {
       const urlObj = new URL(baseURL)

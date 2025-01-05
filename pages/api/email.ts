@@ -29,6 +29,8 @@ export default async function handler(
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
+  console.log(req.body)
+
   const validationResult = cloudMailinEmailSchema.safeParse(req.body)
 
   if (!validationResult.success) {
@@ -54,6 +56,8 @@ export default async function handler(
     },
   })
   const normalized = normalizePreviewData(previewData)
+
+  console.log({ previewData, normalized })
 
   const timestamp = new Date(normalized.date).getTime()
   await redis.zAdd('links', {

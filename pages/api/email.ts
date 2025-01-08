@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
-import { getLinkPreview } from 'link-preview-js'
 import { createRedisClient } from 'external'
+import { chromium } from 'playwright'
 
 const cloudMailinEmailSchema = z.object({
   plain: z.string(),
@@ -10,15 +10,31 @@ const cloudMailinEmailSchema = z.object({
   }),
 })
 
-const normalizePreviewData = (
-  data: Awaited<ReturnType<typeof getLinkPreview>>
-) => ({
-  title: 'title' in data ? data.title : new URL(data.url).hostname,
-  description: 'description' in data ? data.description || null : null,
-  image: 'images' in data ? data.images[0] || null : null,
-  url: data.url,
-  date: new Date().toISOString(),
-})
+const normalizePreviewData = async (url: string) => {
+  await using browser = await chromium.launch({
+    chromiumSandbox: false,
+  })
+  const page = await browser.newPage()
+  await page.goto(url, { waitUntil: 'networkidle' })
+  
+  const title = await page.title()
+  const description = await page
+    .locator('meta[name="description"]')
+    .getAttribute('content')
+    .catch(() => "")
+  const image = await page
+    .locator('meta[property="og:image"]')
+    .getAttribute('content')
+    .catch(() => "")
+
+  return {
+    title: title || new URL(url).hostname,
+    description,
+    image,
+    url,
+    date: new Date().toISOString(),
+  }
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -44,31 +60,11 @@ export default async function handler(
     return res.status(400).end()
   }
 
-  const previewData = await getLinkPreview(link, {
-    followRedirects: `manual`,
-    handleRedirects: (baseURL, forwardedURL) => {
-      const urlObj = new URL(baseURL)
-      const forwardedURLObj = new URL(forwardedURL)
-      if (
-        forwardedURLObj.hostname === urlObj.hostname ||
-        forwardedURLObj.hostname === 'www.' + urlObj.hostname ||
-        'www.' + forwardedURLObj.hostname === urlObj.hostname
-      ) {
-        return true
-      } else {
-        return false
-      }
-    },
-  })
-  const normalized = normalizePreviewData(previewData)
+  const normalized = await normalizePreviewData(link)
 
-  console.log({ previewData, normalized })
+  console.log({ normalized })
 
-  const timestamp = new Date(normalized.date).getTime()
-  await redis.zAdd('links', {
-    score: timestamp,
-    value: JSON.stringify(normalized),
-  })
+  await redis.lPush('linkList', JSON.stringify(normalized))
 
   return res.status(200).json({ success: true })
 }

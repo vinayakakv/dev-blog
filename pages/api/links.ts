@@ -11,10 +11,8 @@ export default async function handler(
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  // Get all links from Redis sorted set in reverse order (newest first)
-  const links = await redis.zRange('links', 0, -1, {
-    REV: true,
-  })
+  // Get all links from Redis list (already in newest-first order due to LPUSH)
+  const links = await redis.lRange('linkList', 0, -1)
 
   // Parse JSON strings back to objects
   const parsedLinks = links.map((link) => JSON.parse(link))

@@ -28,12 +28,6 @@ const links: HeroLink[] = [
     link: 'mailto:me.vinayakakv@gmail.com',
     external: true,
   },
-  {
-    name: 'Resume',
-    icon: 'download',
-    link: 'https://github.com/vinayakakv/vinayakakv/blob/main/Vinayaka%20Resume.pdf',
-    external: true,
-  },
 ]
 
 export function Footer() {

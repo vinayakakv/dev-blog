@@ -1,6 +1,5 @@
 import type { MDXRemoteProps } from 'next-mdx-remote'
 import { Link } from './Link'
-import { BlogCard } from './BlogCard'
 import { Button } from './Button'
 
 export const MDXComponents: MDXRemoteProps['components'] = {

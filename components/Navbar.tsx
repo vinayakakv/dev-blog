@@ -9,6 +9,10 @@ const menuLinks = [
     name: 'Blog',
     link: '/blog',
   },
+  {
+    name: 'Résumé',
+    link: '/resume',
+  },
 ]
 
 export function Navbar() {
@@ -25,7 +29,7 @@ export function Navbar() {
     </menu>
   )
   return (
-    <nav className="fixed left-0 top-0  w-full bg-gray-900 bg-opacity-60 px-5 py-2 backdrop-blur-sm">
+    <nav className="fixed left-0 top-0 isolate z-10 w-full bg-gray-900 bg-opacity-60 px-5 py-2 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
         <section className="flex flex-row items-center justify-between">
           <span className="font-mono font-semibold text-green-400">

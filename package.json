@@ -14,7 +14,7 @@
     "dayjs": "^1.11.13",
     "gray-matter": "^4.0.3",
     "katex": "^0.16.19",
-    "next": "latest",
+    "next": "^15.1.4",
     "next-mdx-remote": "^4.4.1",
     "next-seo": "^6.6.0",
     "playwright": "^1.49.1",

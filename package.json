@@ -2,12 +2,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && bunx playwright install chromium",
     "start": "next start",
     "prepare": "husky install"
   },
   "dependencies": {
-    "@playwright/browser-chromium": "^1.49.1",
     "@react-pdf-viewer/core": "^3.12.0",
     "@react-pdf-viewer/default-layout": "^3.12.0",
     "@vercel/analytics": "^1.4.1",

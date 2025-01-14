@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { createRedisClient } from 'external'
-import { chromium } from 'playwright'
+import {chromium as playwright} from 'playwright-core'
+import chromium from '@sparticuz/chromium'
 
 const cloudMailinEmailSchema = z.object({
   plain: z.string(),
@@ -11,21 +12,23 @@ const cloudMailinEmailSchema = z.object({
 })
 
 const normalizePreviewData = async (url: string) => {
-  await using browser = await chromium.launch({
-    chromiumSandbox: false,
+  await using browser = await playwright.launch({
+    args: chromium.args,
+    executablePath: await chromium.executablePath(),
+    headless: false,
   })
   const page = await browser.newPage()
   await page.goto(url, { waitUntil: 'networkidle' })
-  
+
   const title = await page.title()
   const description = await page
     .locator('meta[name="description"]')
     .getAttribute('content')
-    .catch(() => "")
+    .catch(() => '')
   const image = await page
     .locator('meta[property="og:image"]')
     .getAttribute('content')
-    .catch(() => "")
+    .catch(() => '')
 
   return {
     title: title || new URL(url).hostname,
@@ -46,7 +49,7 @@ export default async function handler(
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  console.log({body: req.body, headers: req.headers})
+  console.log({ body: req.body, headers: req.headers })
 
   const validationResult = cloudMailinEmailSchema.safeParse(req.body)
 

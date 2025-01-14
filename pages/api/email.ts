@@ -8,9 +8,6 @@ const cloudMailinEmailSchema = z.object({
   plain: z.string(),
   envelope: z.object({
     from: z.literal('me.vinayakakv@gmail.com'),
-  }),
-  headers: z.object({
-    authorization: z.string()
   })
 })
 
@@ -46,17 +43,19 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  await using redis = await createRedisClient()
+  console.log({ body: req.body, headers: req.headers })
 
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' })
   }
 
   if (req.headers.authorization !== process.env['EMAIL_AUTHORIZATION']) {
+    console.log({
+      req: req.headers.authorization,
+      env: process.env['EMAIL_AUTHORIZATION']
+    })
     return res.status(401).end()
   }
-
-  console.log({ body: req.body, headers: req.headers })
 
   const validationResult = cloudMailinEmailSchema.safeParse(req.body)
 
@@ -73,6 +72,8 @@ export default async function handler(
   const normalized = await normalizePreviewData(link)
 
   console.log({ normalized })
+
+  await using redis = await createRedisClient()
 
   await redis.lPush('linkList', JSON.stringify(normalized))
 

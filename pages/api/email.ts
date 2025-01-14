@@ -9,6 +9,9 @@ const cloudMailinEmailSchema = z.object({
   envelope: z.object({
     from: z.literal('me.vinayakakv@gmail.com'),
   }),
+  headers: z.object({
+    authorization: z.string()
+  })
 })
 
 const normalizePreviewData = async (url: string) => {
@@ -47,6 +50,10 @@ export default async function handler(
 
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' })
+  }
+
+  if (req.headers.authorization !== process.env['EMAIL_AUTHORIZATION']) {
+    return res.status(401).end()
   }
 
   console.log({ body: req.body, headers: req.headers })
